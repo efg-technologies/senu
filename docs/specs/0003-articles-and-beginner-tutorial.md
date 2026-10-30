@@ -83,7 +83,7 @@ Pedagogy borrows only the learning structure of the [Rails getting-started guide
 **Check blocks.** Fenced info strings carry the checks. The renderer drops them, so readers see plain code. Block kinds:
 
 - `sh check=<name> [exit=<n>] [server]` is a command to run.
-- `text check=<name>` is that command's exact expected output, stdout and stderr merged.
+- `text check=<name>` is that command's exact expected output, stdout and stderr merged. It must come after its command and before the next command, file or patch block. A command without one must print nothing; otherwise the checker fails there, or at the end of the language for the last command.
 - `<lang> file=<path>` is the full content of a file the learner creates or replaces. Paths stay under `content/` or `src/` and contain no `..`, and the preceding paragraph must name the path in backticks.
 - `diff patch` is a unified diff applied with `git apply`; only the appendix uses it.
 - `sh manual` is a command the checker cannot run, such as cloning; it is listed as not run.

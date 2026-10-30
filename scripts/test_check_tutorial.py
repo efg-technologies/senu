@@ -309,6 +309,36 @@ class Languages(Scratch):
         with self.assertRaisesRegex(CheckFailed, "other than the expected one"):
             self.check("en")
 
+    def commit_article(self, text):
+        write(self.root / "content/en/01-a.md", "# A\n\n" + text)
+        git(self.root, "commit", "-q", "-am", "article")
+
+    def test_output_without_its_text_block_fails_before_the_next_block(self):
+        one = "```sh check=one\nprintf 'a\\n'\n```\n\n"
+        for following in (
+            "```sh check=two\nprintf 'b\\n'\n```\n\n```text check=two\nb\n```\n",
+            "Create `content/en/51-b.md`:\n\n```md file=content/en/51-b.md\n# B\n```\n",
+        ):
+            self.commit_article(one + following)
+            with self.assertRaisesRegex(
+                    CheckFailed, r"^content/en/01-a.md:3: one printed output that no `text check=one`"):
+                self.check("en")
+
+    def test_output_without_its_text_block_fails_at_the_end(self):
+        self.commit_article("```sh check=one\nprintf 'a\\n'\n```\n")
+        with self.assertRaisesRegex(
+                CheckFailed, r"^content/en/01-a.md:3: one printed output that no `text check=one`"):
+            self.check("en")
+
+    def test_complete_pairs_and_silent_commands_pass(self):
+        self.commit_article(
+            "```sh check=quiet\ntrue\n```\n\n"
+            "```sh check=one\nprintf 'a\\n'\n```\n\n```text check=one\na\n```\n\n"
+            "```sh check=last-quiet\ntrue\n```\n")
+        printed = self.check("en")
+        self.assertIn("ok: content/en/01-a.md:11: one output matches", printed)
+        self.assertIn("ok: content/en/01-a.md:15: last-quiet (exit 0)", printed)
+
     def test_a_changed_reading_rs_fails(self):
         text = self.ARTICLE.format(locale="en", expected="01-a.md\n51-b.md\n")
         text += "\nEdit `src/reading.rs`:\n\n```rust file=src/reading.rs\nfn g() {}\n```\n"

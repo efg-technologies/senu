@@ -14,7 +14,10 @@ the script. Their info strings, which the site does not show, say what to do:
 
   sh check=<name> [exit=<n>] [server]   a command; it must exit with <n> (0)
   text check=<name>                     the exact output of that command,
-                                        stdout and stderr merged
+                                        stdout and stderr merged; it comes
+                                        before the next command, file or
+                                        patch, and a command without one
+                                        must print nothing
   <lang> file=<path>                    the full new content of <path>, which
                                         the paragraph before names in backticks
   diff patch                            a patch applied with `git apply`
@@ -318,7 +321,7 @@ class Session:
         self.work, self.env, self.all_mismatches = work, env, all_mismatches
         self.server = None
         self.address = None
-        self.last = None  # (name, output) of the last command
+        self.last = None  # (name, output, where) of the last command
         self.mismatches = []
         self.manual = []
 
@@ -330,8 +333,19 @@ class Session:
             self.server = None
             self.address = None
 
+    def unchecked(self):
+        """Fails if the last command printed output that no `text` block
+        checked; called before every command, file and patch, and at the end."""
+        if self.last is not None and self.last[1]:
+            name, _, where = self.last
+            raise CheckFailed(
+                f"{where}: {name} printed output that no `text check={name}` block checks")
+        self.last = None
+
     def step(self, block):
         kind = block.kind
+        if kind in ("command", "server", "file", "patch"):
+            self.unchecked()
         if kind in ("command", "server"):
             self.command(block, kind)
         elif kind == "expected":
@@ -376,7 +390,7 @@ class Session:
             for line in output.splitlines()
         ):
             raise CheckFailed(f"{label} failed for a reason other than the expected one:\n{output}")
-        self.last = (name, output)
+        self.last = (name, output, block.where)
         print(f"ok: {label} (exit {status})")
 
     def compare(self, block):
@@ -408,6 +422,7 @@ def check_language(locale, all_mismatches=False):
             for path in articles(work, locale):
                 for block in blocks(path, shown_as=path.relative_to(work)):
                     session.step(block)
+            session.unchecked()
         finally:
             session.stop_server()
         for where in session.manual:
