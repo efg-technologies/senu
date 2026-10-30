@@ -7,7 +7,10 @@ Starts `cargo run --quiet --locked -- site` on a free loopback port in its
 own process group, crawls every internal link from / and /ja/, and fails
 unless each one answers 200 with HTML. Pages are saved as index.html,
 <slug>.html, ja/index.html and ja/<slug>.html, and every internal href
-becomes the relative path of the saved file, so the directory works from
+attribute of a real start tag becomes the relative path of the saved file,
+while text, code, entities and comments stay byte for byte, so that an
+escaped example such as `&lt;a href="/x"&gt;` is shown as served. The
+directory works from
 any plain static file server on localhost, or straight from disk. Finally,
 every relative href must name a saved file and every #fragment an id in
 the page it points to. The server is stopped as Ctrl+C would. Nothing is
@@ -28,21 +31,46 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_tutorial import ROOT, CheckFailed, clean_env, start_server, stop  # noqa: E402
 
 START = ("/", "/ja/")
-INTERNAL_HREF = re.compile(r'href="(/[^"]*)"')
+HREF_ATTRIBUTE = re.compile(r'\shref="([^"]*)"')
 
 
 class Links(html.parser.HTMLParser):
+    """The href and id attributes of real start tags, and for each href the
+    position and text of its start tag."""
+
     def __init__(self, text):
         super().__init__()
-        self.hrefs, self.ids = [], set()
+        self.hrefs, self.ids, self.tags = [], set(), []
         self.feed(text)
+        self.close()
 
     def handle_starttag(self, tag, attrs):
         for name, value in attrs:
             if name == "href":
                 self.hrefs.append(value)
+                self.tags.append((self.getpos(), self.get_starttag_text(), value))
             elif name == "id":
                 self.ids.add(value)
+
+
+def rewrite(route, text):
+    """`text` with the internal href of each real start tag made relative to
+    the saved file of `route`; every other byte is kept."""
+    # The parser counts lines by "\n" only, and columns in characters.
+    line_starts = [0] + [match.end() for match in re.finditer("\n", text)]
+    parts, done = [], 0
+    for (line, column), tag_text, href in Links(text).tags:
+        if not href.startswith("/") or href.startswith("//"):
+            continue
+        start = line_starts[line - 1] + column
+        found = list(HREF_ATTRIBUTE.finditer(tag_text))
+        if text[start : start + len(tag_text)] != tag_text or [m[1] for m in found] != [href]:
+            raise CheckFailed(f"{route}: cannot rewrite the link in {tag_text}")
+        target, mark, fragment = href.partition("#")
+        parts += [text[done : start + found[0].start(1)], relative(route, target), mark, fragment]
+        done = start + found[0].end(1)
+    parts.append(text[done:])
+    return "".join(parts)
 
 
 def saved_as(route):
@@ -82,6 +110,14 @@ def crawl(base):
     return pages
 
 
+def save(out, pages):
+    """Writes each page with its internal links made relative."""
+    for route, text in pages.items():
+        path = out / saved_as(route)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rewrite(route, text), encoding="utf-8")
+
+
 def verify(out):
     """Every relative link names a saved file, and every fragment an id."""
     files = {path: Links(path.read_text(encoding="utf-8")) for path in out.rglob("*.html")}
@@ -116,11 +152,7 @@ def main(argv):
         finally:
             stop(process, first=signal.SIGINT)
             log.close()
-        for route, text in pages.items():
-            path = out / saved_as(route)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fixed = INTERNAL_HREF.sub(lambda m: f'href="{relative(route, m.group(1))}"', text)
-            path.write_text(fixed, encoding="utf-8")
+        save(out, pages)
         print(f"ok: {verify(out.resolve())} pages saved in {out}")
         return 0
     except CheckFailed as err:

@@ -184,7 +184,8 @@ python3 scripts/snapshot_site.py target/site
 
 The tests include `tests/quickstart_check.rs`, which runs the quickstart's MCP
 checker against fake servers, and `tests/tutorial_checker.rs`, which runs the
-tutorial checker's own tests; both need `python3`. `check_tutorial.py` runs
+own tests of the tutorial checker and of the site snapshot; both need
+`python3`. `check_tutorial.py` runs
 the course in English and then in Japanese, each in a temporary copy of the
 last commit, and leaves the working tree unchanged; commit your changes
 first, because it refuses to run while tracked files differ from HEAD.

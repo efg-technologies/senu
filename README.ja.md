@@ -175,8 +175,8 @@ python3 scripts/snapshot_site.py target/site
 ```
 
 テストには、quickstart の MCP チェッカーを偽のサーバーに対して動かす
-`tests/quickstart_check.rs` と、チュートリアル確認スクリプト自身のテストを実行する
-`tests/tutorial_checker.rs` が含まれ、どちらも `python3` が必要です。
+`tests/quickstart_check.rs` と、チュートリアル確認スクリプトとサイトのスナップショットの
+それぞれのテストを実行する `tests/tutorial_checker.rs` が含まれ、どちらも `python3` が必要です。
 `check_tutorial.py` は講座を英語、日本語の順に、それぞれ最後のコミットの一時的なコピーで
 実行し、作業ツリーを変えません。追跡しているファイルが HEAD と違う間は実行を拒むので、
 先に変更をコミットしてください。`snapshot_site.py` には新しいか空のディレクトリーを渡します。
