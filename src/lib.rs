@@ -2,5 +2,8 @@
 //!
 //! This is an experimental runnable seed. It is not audited security software.
 
+pub mod auth;
 pub mod catalogue;
+pub mod cli;
+pub mod config;
 pub mod operation;

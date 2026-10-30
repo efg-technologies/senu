@@ -55,3 +55,34 @@ The eight tests that passed against the stubs compare two empty results (for
 example "whitespace-only search equals no search") or check constants. They
 pass for the right reason only once the catalogue is populated, which the
 green run confirms.
+
+## Commit 3: CLI parser, configuration and auth parsing (§6 steps 7–8)
+
+Tests: `src/cli.rs` (CFG-3 argument forms), `src/config.rs` (CFG-1 and the
+`SENU_BIND` half of CFG-2) and `src/auth.rs` (Basic and Bearer parsing,
+constant-time comparison, redacted `Debug`). All are pure unit tests over
+argument lists, environment pairs and header bytes.
+
+Red: `parse_args` always returned `Help`, both config functions always
+returned "SENU_BIND missing", and the header parser returned `None`.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo test --locked --lib` (stubs) | 101 | 34 passed, 31 failed (auth 7, cli 7, config 17) |
+| `cargo test --locked --lib` (implementation) | 0 | 65 passed |
+
+Representative red assertions:
+
+- `cli::accepts_the_three_documented_forms`: `left: Ok(Help)`, `right: Ok(Serve)`.
+- `auth::parses_basic_credentials`: `left: None`, `right: Some(Basic(<redacted>))`.
+- `config::valid_mcp_configuration_needs_only_the_mcp_token`: panicked on `expect("valid configuration")`.
+
+Design notes:
+
+- Every present `SENU_*` variable is validated in both modes, so a reused or
+  malformed credential is never ignored. Unknown and repeated names are
+  rejected. The mode then decides which variables are required.
+- The distinctness check covers `SENU_WEB_USER`, `SENU_WEB_PASSWORD`,
+  `SENU_API_TOKEN` and `SENU_MCP_TOKEN`.
+- Bearer tokens may contain any visible ASCII byte, because configured tokens
+  may. Header values over 1024 bytes are not parsed.
