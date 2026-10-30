@@ -667,3 +667,15 @@ command, its exit status and the decisive lines.
   off-by-one at `usize::MAX`.
 - Green: quotient plus one when the remainder is not zero; the same command
   exited 0 with `5 passed`, including `usize::MAX` without overflow.
+
+### Markdown and link policy (SAFE-1 to SAFE-3, SAFE-2)
+
+- Red: with the event policy passing every event through and the link rule
+  accepting any non-empty destination, `cargo test --lib -q markdown`
+  exited 101: `7 passed; 9 failed` (images, a second H1, raw HTML, the
+  info string, unsupported events and the destination table).
+- Green: the same command exited 0 with `16 passed`. Raw HTML and code are
+  escaped, the info string is gone, footnote, task-list, math,
+  strikethrough, alert and definition syntax stays literal text with only
+  allow-listed tags, events outside the list fail closed, and the 34 refused
+  destinations report line 4 and the debug-quoted destination.
