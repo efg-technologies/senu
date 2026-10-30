@@ -248,3 +248,17 @@ Differences from the spec's assumptions (risk R2):
 - The schema's `maxLength` counts code points of the untrimmed string, while
   the operation trims first. A client that enforces the schema may reject a
   padded search the server would accept; the server stays the authority.
+
+## Commit 8: three-transport parity (§6 step 16)
+
+Test: `tests/adapter_parity.rs`, one table-driven function over the X-1
+queries (none, `launch`, `" CAFÉ "`, `zephyr`). For each query it pins the
+expected ids of the direct `list_projects` call, so equal-but-empty results
+cannot pass by accident, then compares `(id, name)` pairs in order from the
+JSON API, the MCP `structuredContent` and the HTML items after entity
+decoding.
+
+Red: the test was written together with the MCP tests and run against the
+same stubs (see commit 7). It failed at the MCP call for the first query,
+after the API and HTML comparisons for that query had passed. It passed once
+the MCP handler was implemented; no parity-specific code was needed.
