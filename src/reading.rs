@@ -17,22 +17,10 @@ mod tests {
     use super::reading_minutes;
 
     #[test]
-    fn no_words_take_no_time() {
+    fn rounds_up_to_whole_minutes() {
         assert_eq!(reading_minutes(0), 0);
-    }
-
-    #[test]
-    fn one_word_takes_one_minute() {
         assert_eq!(reading_minutes(1), 1);
-    }
-
-    #[test]
-    fn two_hundred_words_take_one_minute() {
         assert_eq!(reading_minutes(200), 1);
-    }
-
-    #[test]
-    fn two_hundred_and_one_words_take_two_minutes() {
         assert_eq!(reading_minutes(201), 2);
     }
 
