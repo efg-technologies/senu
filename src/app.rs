@@ -12,6 +12,7 @@ use crate::catalogue::Catalogue;
 use crate::cli::{self, Command};
 use crate::config::{self, ServeConfig};
 use crate::http::{self, AppState};
+use crate::mcp::McpServer;
 
 const USAGE_OR_CONFIG: u8 = 2;
 const RUNTIME_FAILURE: u8 = 1;
@@ -36,7 +37,9 @@ where
             Err(err) => fail(USAGE_OR_CONFIG, &err),
         },
         Command::Mcp => match config::mcp_config(vars) {
-            Ok(_config) => fail(RUNTIME_FAILURE, &"senu: MCP mode is not available yet"),
+            // The token is validated and never needed again: stdio trusts
+            // the local process that set the environment.
+            Ok(_config) => mcp(),
             Err(err) => fail(USAGE_OR_CONFIG, &err),
         },
     }
@@ -79,6 +82,34 @@ fn serve(config: ServeConfig) -> ExitCode {
             Err(_) => fail(
                 RUNTIME_FAILURE,
                 &"senu: the HTTP server stopped unexpectedly",
+            ),
+        }
+    })
+}
+
+/// Serves MCP over stdio until stdin reaches EOF. Stdout carries only
+/// JSON-RPC; nothing is logged.
+fn mcp() -> ExitCode {
+    use rmcp::ServiceExt as _;
+    use rmcp::service::{QuitReason, ServerInitializeError};
+
+    let runtime = match runtime() {
+        Ok(runtime) => runtime,
+        Err(_) => return fail(RUNTIME_FAILURE, &"senu: could not start the runtime"),
+    };
+    runtime.block_on(async {
+        let server = McpServer::new(Catalogue::demo());
+        let running = match server.serve(rmcp::transport::io::stdio()).await {
+            Ok(running) => running,
+            // EOF before `initialize` is a clean shutdown, not an error.
+            Err(ServerInitializeError::ConnectionClosed(_)) => return ExitCode::SUCCESS,
+            Err(_) => return fail(RUNTIME_FAILURE, &"senu: MCP initialization failed"),
+        };
+        match running.waiting().await {
+            Ok(QuitReason::Closed | QuitReason::Cancelled) => ExitCode::SUCCESS,
+            _ => fail(
+                RUNTIME_FAILURE,
+                &"senu: the MCP server stopped unexpectedly",
             ),
         }
     })

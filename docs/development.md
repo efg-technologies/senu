@@ -202,3 +202,49 @@ Red assertions:
 - `view::tests::search_input_leaves_length_rules_to_the_server`: the input tag contained `maxlength`.
 - `html_accepts_searches_a_browser_maxlength_would_block`: 80 emoji with surrounding spaces returned 200 and echoed the trimmed value, but the page still carried `maxlength`.
 - `serve_answers_api_and_html_requests_over_a_real_listener`: `Content-Length: 00: {"error":"payload_too_large"}`, `left: 413`, `right: 200`.
+
+## Commit 7: MCP handler and stdio E2E tests (§6 steps 14–15)
+
+Code: `src/mcp.rs` declares one tool, `list_projects`, by hand: a
+`rmcp::model::Tool` with `readOnlyHint: true` and an object input schema
+(optional string `q`, `maxLength` 80, `additionalProperties: false`). A
+hand-written `ServerHandler` answers `initialize` (tools capability only),
+`tools/list` and `tools/call`; no tool macros or reflection are used. Calls go
+through the same pure `list_projects` with the server-bound `demo-mcp`
+principal. `src/app.rs` validates `SENU_MCP_TOKEN` before reading stdin, then
+serves on `rmcp::transport::io::stdio()`. EOF, including EOF before
+`initialize`, exits 0.
+
+Tests: `tests/adapter_mcp.rs` (8 functions: the one declared tool and its
+schema, tools-only capability, structured plus JSON text result, missing
+arguments, MCP-3 forbidden principal before validation, invalid search and
+unknown fields as `isError` results, tenant from the server principal, unknown
+tool as `-32602`) and `tests/e2e_mcp.rs` (2 functions: the MCP-1 sequence over
+real stdio with MCP-2 stdout checks, and EOF/missing-token startup).
+
+Red: `McpServer::call` returned an internal error, `tools()` returned no tools,
+`info()` returned the rmcp default, and MCP mode still exited 1.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo test --locked --no-fail-fast --test adapter_mcp --test adapter_parity --test e2e_mcp` (stubs) | 101 | adapter_mcp 0 passed, 8 failed; adapter_parity 0 passed, 1 failed; e2e_mcp 0 passed, 2 failed |
+| same command (implementation) | 0 | adapter_mcp 8, adapter_parity 1, e2e_mcp 2 passed |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings |
+
+Representative red failures: `exactly_one_explicit_read_only_tool_is_declared`
+failed on `tools.len()`; the stdio session test found stdout closed before the
+`initialize` reply; the EOF test saw exit status 1 instead of 0.
+
+Differences from the spec's assumptions (risk R2):
+
+- rmcp 3.8.0 has `ProtocolVersion::LATEST` = `2026-07-28`, a revision that
+  replaced the `initialize` handshake with per-request `_meta`. The E2E test
+  still sends `initialize` with `LATEST`, as MCP-1 says, and rmcp's
+  negotiation answers with `ProtocolVersion::LATEST_WITH_INITIALIZE`
+  (`2025-11-25`), the newest revision that has a handshake. The test asserts
+  that answer.
+- `tools/call` returns `CallToolResponse` (complete, input-required or task);
+  Senu always returns the complete variant.
+- The schema's `maxLength` counts code points of the untrimmed string, while
+  the operation trims first. A client that enforces the schema may reject a
+  padded search the server would accept; the server stays the authority.

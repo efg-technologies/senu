@@ -8,5 +8,6 @@ pub mod catalogue;
 pub mod cli;
 pub mod config;
 pub mod http;
+pub mod mcp;
 pub mod operation;
 pub mod view;
