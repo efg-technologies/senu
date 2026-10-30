@@ -94,7 +94,7 @@ A `server` command runs in the background with `SENU_BIND=127.0.0.1:0`. Later bl
 
 ## 9. Acceptance criteria
 
-- **CNT-1** A test compares the embedded table with a fresh listing of `content/` (selection rule of §3, byte order). Discovery unit tests refuse a symlinked `content/en`, a symlink or directory named `x.md` and a non-UTF-8 name, ignore `.x.md.swp` and `x.md~`, and return the same order for any creation order.
+- **CNT-1** A test compares the embedded table with a fresh listing of `content/` (selection rule of §3, byte order). Discovery unit tests refuse a symlinked `content` or `content/en`, a symlink or directory named `x.md` and a non-UTF-8 name, ignore `.x.md.swp` and `x.md~`, and return the same order for any creation order.
 - **CNT-2** In the checker's copy, without `cargo clean`, rerunning the documented command after adding a note serves it and lists it in the navigation, after editing it serves the change, and after deleting it returns 404 and drops it from the navigation.
 - **ART-1** Name, size, BOM, duplicate-number, duplicate-slug and reserved-slug cases are table-tested; each error names the file.
 - **ART-2** Title rules: missing or late H1, an empty or 81-character title, a second H1, and a link or image in the H1 fail with file and line. Inline HTML in a title renders as escaped text.

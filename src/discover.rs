@@ -19,10 +19,16 @@ pub const MAX_FILE_BYTES: u64 = 128 * 1024;
 ///
 /// Names that start with `.` or do not end in `.md` are ignored, such as
 /// editor swap and backup files. Every other entry must be a regular file
-/// with a UTF-8 name, at most [`MAX_FILE_BYTES`] long and valid UTF-8; all
-/// other rules are checked when the site loads. Errors read
+/// with a UTF-8 name, at most [`MAX_FILE_BYTES`] long and valid UTF-8, and
+/// `root` and its locale directories must be real directories, not
+/// symlinks; all other rules are checked when the site loads. Errors read
 /// `senu: <path>: <reason>`, with control characters escaped.
 pub fn discover(root: &Path) -> Result<Vec<String>, String> {
+    let meta =
+        fs::symlink_metadata(root).map_err(|err| format!("senu: content: {}", err.kind()))?;
+    if !meta.is_dir() {
+        return Err("senu: content: must be a directory, not a symlink or a file".into());
+    }
     let mut paths = Vec::new();
     for locale in LOCALES {
         let dir = format!("content/{locale}");
@@ -209,6 +215,27 @@ mod tests {
         assert_eq!(
             discover(&linked).unwrap_err(),
             "senu: content/en: must be a directory, not a symlink or a file"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_content_directory_is_an_error() {
+        use std::os::unix::fs::symlink;
+        let outside = scratch();
+        write(&outside, "en/01-a.md", b"# Outside\n");
+        write(&outside, "ja/01-a.md", b"# Outside\n");
+        let linked = scratch();
+        fs::remove_dir_all(&linked).unwrap();
+        symlink(&outside, &linked).unwrap();
+        assert_eq!(
+            discover(&linked).unwrap_err(),
+            "senu: content: must be a directory, not a symlink or a file"
+        );
+        assert_eq!(
+            discover(&outside).unwrap().len(),
+            2,
+            "the real tree is fine"
         );
     }
 
