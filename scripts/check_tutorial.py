@@ -10,14 +10,15 @@ A snippet section is the text between `ANCHOR: name` and `ANCHOR_END: name`
 lines, the syntax that mdBook's `{{#include file:name}}` uses.
 
 `commands` runs from the repository root. It starts the server as the `serve`
-section of docs/tutorial/commands/serve.sh does, but on a free loopback port,
-then runs every other section of docs/tutorial/commands/*.sh, replacing the
+section of docs/tutorial/commands/serve.sh does, but on a free loopback port
+and with `bash -e`, so a failed build never starts an old binary, then runs every other section of docs/tutorial/commands/*.sh, replacing the
 documented http://127.0.0.1:3000 with the real address. Each section must
 exit 0 and print exactly the same-named section of the matching `.out` file.
 Other loopback ports in the output are compared as `PORT`.
 
-`exercise` copies the repository's tracked and unignored files into a new git
-repository in a temporary directory, and reuses a copy of target/debug when
+`exercise` unpacks the last commit (HEAD), and nothing else, into a new git
+repository in a temporary directory; it refuses to run while tracked files
+differ from HEAD, and refuses links that point out of the tree. It reuses a copy of target/debug when
 one exists, so only Senu itself is rebuilt there. It then runs the sections
 of docs/tutorial/exercise/steps.sh in order. Each must exit with the status
 listed in STEPS below, and the lines of its `.out` section must appear in its
@@ -26,6 +27,10 @@ step must fail on a test assertion, never on a patch, compiler or setup
 error. The temporary directory is removed, and the original working tree
 must be unchanged at the end.
 
+Every command runs in its own process group. When it ends, times out or the
+check fails, whatever is left of that group is killed, even if the command's
+shell has already exited; no other process is signalled.
+
 Exit status 0 means every check passed; on failure the reason, and the
 output of the failing step, go to stderr and the exit status is 1.
 Standard library only.
@@ -33,12 +38,14 @@ Standard library only.
 
 import difflib
 import hashlib
+import io
 import os
 import re
 import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -102,21 +109,34 @@ def clean_env():
 
 
 def run(script, cwd, env, timeout):
-    try:
-        done = subprocess.run(
+    """Runs `script` with bash; returns its exit status and output."""
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as log:
+        job = subprocess.Popen(
             ["bash", "-c", script],
             cwd=cwd,
             env=env,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            timeout=timeout,
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
         )
-    except subprocess.TimeoutExpired:
-        raise CheckFailed(f"no result within {timeout} s:\n{script}") from None
-    return done.returncode, done.stdout
+        try:
+            deadline = time.monotonic() + timeout
+            while not exited(job):
+                if time.monotonic() >= deadline:
+                    raise CheckFailed(f"no result within {timeout} s:\n{script}")
+                time.sleep(0.1)
+        finally:
+            stop(job)
+        log.seek(0)
+        return job.returncode, log.read()
+
+
+def exited(job):
+    """Whether `job` has exited, without reaping it. Until it is reaped, its
+    process id, which is also the id of its process group, stays reserved."""
+    flags = os.WEXITED | os.WNOHANG | os.WNOWAIT
+    return job.returncode is not None or os.waitid(os.P_PID, job.pid, flags) is not None
 
 
 def normalize(output, url=None):
@@ -137,7 +157,7 @@ def start_server(env):
         raise CheckFailed("serve.sh no longer binds 127.0.0.1:3000")
     log = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
     server = subprocess.Popen(
-        ["bash", "-c", script],
+        ["bash", "-e", "-c", script],
         cwd=ROOT,
         env=env,
         stdin=subprocess.DEVNULL,
@@ -146,25 +166,36 @@ def start_server(env):
         start_new_session=True,
     )
     deadline = time.monotonic() + 600
-    while time.monotonic() < deadline and server.poll() is None:
-        log.seek(0)
-        for line in log.read().splitlines():
-            if line.startswith("senu: listening on http://127.0.0.1:"):
-                return server, line.removeprefix("senu: listening on "), log
-        time.sleep(0.2)
-    log.seek(0)
+    try:
+        while time.monotonic() < deadline and not exited(server):
+            log.seek(0)
+            for line in log.read().splitlines():
+                if line.startswith("senu: listening on http://127.0.0.1:"):
+                    return server, line.removeprefix("senu: listening on "), log
+            time.sleep(0.2)
+    except BaseException:
+        stop(server)
+        raise
     stop(server)
+    log.seek(0)
     raise CheckFailed(f"the serve section did not start a server:\n{log.read()}")
 
 
-def stop(server):
-    if server.poll() is None:
-        os.killpg(server.pid, signal.SIGTERM)
+def stop(job):
+    """Ends every process left in `job`'s process group, then reaps `job`.
+    The group is signalled only while `job` is unreaped, so its id cannot
+    belong to anyone else; this works even after `job` itself has exited."""
+    if job.returncode is not None:
+        return
+    for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
-            server.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(server.pid, signal.SIGKILL)
-            server.wait(timeout=10)
+            os.killpg(job.pid, sig)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 10
+        while sig == signal.SIGTERM and not exited(job) and time.monotonic() < deadline:
+            time.sleep(0.1)
+    job.wait(timeout=10)
 
 
 def check_commands():
@@ -245,13 +276,20 @@ def git(args, cwd):
 
 
 def copy_tree(work):
-    listed = git(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], ROOT)
-    for name in sorted({n for n in listed.decode().split("\0") if n}):
-        source = ROOT / name
-        if source.is_file():
-            target = work / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+    """Unpacks the committed HEAD, and nothing else, into a new repository."""
+    changed = git(["status", "--porcelain", "--untracked-files=no"], ROOT)
+    if changed:
+        raise CheckFailed(
+            "the exercise check runs on the last commit, but tracked files differ"
+            " from it; commit or stash them first:\n" + changed.decode(errors="replace")
+        )
+    archive = git(["archive", "--format=tar", "HEAD"], ROOT)
+    work.mkdir(parents=True)
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+            tar.extractall(work, filter="data")
+    except tarfile.FilterError as err:
+        raise CheckFailed(f"HEAD has an entry that cannot be unpacked safely: {err}") from None
     quiet = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
     identity = ["-c", "user.name=tutorial", "-c", "user.email=tutorial@example.invalid"]
     git(["init", "-q", "-b", "main"], work)
