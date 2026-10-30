@@ -6,4 +6,6 @@ pub mod auth;
 pub mod catalogue;
 pub mod cli;
 pub mod config;
+pub mod http;
 pub mod operation;
+pub mod view;

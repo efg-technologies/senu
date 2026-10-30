@@ -1,0 +1,38 @@
+<%# Project list page. Askama HTML-encodes every expression in this file. %>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects · Senu</title>
+<style>
+  body { font-family: system-ui, sans-serif; line-height: 1.5; color: #1f2328; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  .banner { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 0.5rem 0.75rem; }
+  form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 1rem 0; }
+  input, button { font: inherit; padding: 0.3rem 0.6rem; }
+  ul { padding-left: 1.25rem; }
+</style>
+</head>
+<body>
+<header>
+<p class="banner" role="note"><strong>Local demo, not production.</strong> Senu is an experimental seed that lists fixed sample data.</p>
+<h1>Projects</h1>
+</header>
+<main>
+<form method="get" action="/projects" role="search">
+<label for="q">Search projects by name</label>
+<input id="q" name="q" type="search" maxlength="80" value="<%= q %>">
+<button type="submit">Search</button>
+</form>
+<%! if projects.is_empty() %>
+<p>No projects match.</p>
+<%! else %>
+<ul>
+<%! for p in projects %>
+<li data-project-id="<%= p.id %>"><%= p.name %></li>
+<%! endfor %>
+</ul>
+<%! endif %>
+</main>
+</body>
+</html>

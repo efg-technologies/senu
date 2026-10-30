@@ -1,0 +1,14 @@
+# Askama reads this file at compile time. Senu uses an ERB-like syntax and
+# keeps Askama's default HTML escaping for every `.html` template.
+
+[general]
+default_syntax = "erb"
+
+[[syntax]]
+name = "erb"
+block_start = "<%!"
+block_end = "%>"
+expr_start = "<%="
+expr_end = "%>"
+comment_start = "<%#"
+comment_end = "%>"

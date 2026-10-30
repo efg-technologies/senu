@@ -86,3 +86,62 @@ Design notes:
   `SENU_API_TOKEN` and `SENU_MCP_TOKEN`.
 - Bearer tokens may contain any visible ASCII byte, because configured tokens
   may. Header values over 1024 bytes are not parsed.
+
+## Commit 4: JSON API, Askama syntax, HTML page, limits and headers (§6 steps 9–12)
+
+Tests: `src/view.rs` (template rendering), `src/http.rs` (query decoding,
+error mapping, body and header helpers) and `tests/adapter_http.rs`
+(WEB-1, WEB-2, WEB-3 and the adapter half of WEB-4, called in-process with
+`tower::ServiceExt::oneshot`).
+
+### Step 10: Askama syntax spike (spec risk R1)
+
+`askama.toml` first declared the spec's syntax, `<% %>` for blocks and
+`<%= %>` for expressions. `cargo build --locked --lib` exited 101 with:
+
+```text
+error: an opening delimiter may not be the prefix of another delimiter. The block delimiter ("<%") clashes with the expression delimiter ("<%=")
+```
+
+Following R1, blocks moved to `<%! %>` while expressions (`<%= %>`) and
+comments (`<%# %>`) stayed unchanged. The same build then exited 0.
+
+### Red and green
+
+Red: `router` returned 501 for every request, and the template was still the
+spike (no banner, title or label).
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo test --locked --no-fail-fast --lib --test adapter_http` (stubs) | 101 | lib: 69 passed, 3 failed; adapter_http: 1 passed, 17 failed |
+| same command (implementation) | 0 | lib: 81 passed; adapter_http: 18 passed |
+
+Representative red assertions:
+
+- `api_lists_projects_for_a_valid_bearer_token`: `left: 501`, `right: 200`.
+- `templates_and_configuration_never_disable_escaping`: the spike template's
+  comment contained the word "escapes", which the scan forbids. The comment was
+  reworded; the scan stayed strict.
+- `view::markup_in_project_names_is_escaped`: the rendered item was
+  `&#60;script&#62;alert(&#39;x&#39;)&#60;/script&#62; &#38; &#34;Launch&#34; Notes`.
+  Askama 0.16.1 escapes with numeric references, so the literal
+  `&lt;script&gt;` check in WEB-3 could only pass with an escape override,
+  which WEB-3 forbids. The spec wording of WEB-3 was corrected (same ID), and
+  the tests now assert that no raw `<`, `>` or `"` remains and that decoding
+  the entities returns the catalogue name.
+
+The one adapter test that passed against the stub
+(`responses_never_contain_credentials_or_input`) checks for the absence of
+secrets, which an empty 501 response trivially satisfies; it is meaningful
+only with the real router.
+
+Design notes:
+
+- Routes use `any(handler)` and each handler checks `GET` first, so the order
+  is explicit: limits, then routing (404 or 405), then authentication, then
+  `list_projects`. `HEAD` is answered with 405 as the spec says ("any other
+  method"); every 405 carries `Allow: GET`.
+- The limits and header middleware are attached with `Router::layer` after
+  the routes and fallback, so they wrap every route and the 404 fallback.
+- The HTML response also sends a restrictive `Content-Security-Policy`
+  (no scripts, inline styles only). This is extra hardening, not a spec item.
