@@ -1,0 +1,11 @@
+--- a/src/catalogue.rs
++++ b/src/catalogue.rs
+@@ -93,7 +93,7 @@
+         assert_eq!(
+             all,
+             vec![
+-                ("acme-001", "acme", "Apollo Launch"),
++                ("acme-001", "acme", "Artemis Launch"),
+                 ("acme-002", "acme", "Café Roadmap"),
+                 (
+                     "acme-003",

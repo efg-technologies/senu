@@ -1,0 +1,20 @@
+# ANCHOR: launch
+{"projects":[{"id":"acme-001","name":"Apollo Launch"},{"id":"acme-003","name":"<script>alert('x')</script> & \"Launch\" Notes"}]}
+HTTP 200
+# ANCHOR_END: launch
+# ANCHOR: other-tenant
+{"projects":[]}
+HTTP 200
+# ANCHOR_END: other-tenant
+# ANCHOR: pick-tenant
+{"error":"invalid_request"}
+HTTP 400
+# ANCHOR_END: pick-tenant
+# ANCHOR: bad-search
+{"error":"invalid_search"}
+HTTP 400
+# ANCHOR_END: bad-search
+# ANCHOR: no-token
+{"error":"unauthorized"}
+HTTP 401
+# ANCHOR_END: no-token

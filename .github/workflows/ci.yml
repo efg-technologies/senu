@@ -35,3 +35,8 @@ jobs:
         run: cargo test --locked -- --test-threads=2
       - name: Quickstart
         run: scripts/quickstart.sh
+      - name: Tutorial commands
+        run: python3 scripts/check_tutorial.py commands
+      - name: Tutorial exercise
+        run: python3 scripts/check_tutorial.py exercise
+

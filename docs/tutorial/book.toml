@@ -1,0 +1,25 @@
+# The Senu tutorial. English (src/) is canonical; the Japanese translation is
+# in src/ja/ and uses the same chapter files, snippets and expected output.
+# Build both languages with scripts/build_site.sh, which sets the Japanese
+# overrides (src, language, title and site-url) and checks the result.
+
+[book]
+title = "Senu tutorial"
+description = "Run and change Senu: one Rust operation served as HTML, JSON and opt-in stdio MCP."
+language = "en"
+src = "src"
+
+[build]
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-css = ["assets/senu.css"]
+git-repository-url = "https://github.com/efg-technologies/senu"
+edit-url-template = "https://github.com/efg-technologies/senu/blob/main/docs/tutorial/{path}"
+site-url = "/"
+
+# The snippets need this repository, so they cannot run on the Rust Playground.
+[output.html.playground]
+runnable = false
