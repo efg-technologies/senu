@@ -71,6 +71,9 @@ STEPS = {
 }
 ANCHOR = re.compile(r"ANCHOR(_END)?:\s*([A-Za-z0-9_-]+)")
 OTHER_PORT = re.compile(r"http://127\.0\.0\.1:(?!3000\b)\d+")
+# Terminal control sequences, such as the colours Cargo writes under
+# CARGO_TERM_COLOR=always; the expected output is plain text.
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 class CheckFailed(Exception):
@@ -140,6 +143,7 @@ def exited(job):
 
 
 def normalize(output, url=None):
+    output = ANSI_ESCAPE.sub("", output)
     if url:
         output = output.replace(url, DOCUMENTED_URL)
     return OTHER_PORT.sub("http://127.0.0.1:PORT", output)

@@ -11,6 +11,7 @@ Usage: python3 scripts/test_check_tutorial.py
 Standard library only.
 """
 
+import io
 import os
 import shutil
 import signal
@@ -187,6 +188,48 @@ class Snapshot(Scratch):
         for path in self.work.rglob("*") if self.work.exists() else ():
             if path.is_file() and not path.is_symlink():
                 self.assertNotIn(b"outside sentinel", path.read_bytes(), path)
+
+
+class ColouredExercise(Scratch):
+    """CI sets CARGO_TERM_COLOR=always, so Cargo colours its diagnostics."""
+
+    TEST_FAILED = r"\033[1m\033[91merror\033[0m: test failed, to rerun pass `--test adapter_http`"
+
+    def setUp(self):
+        super().setUp()
+        self.root = self.tmp / "repo"
+        self.root.mkdir()
+        git(self.root, "init", "-q", "-b", "main")
+        self.use_root(self.root)
+        environ = mock.patch.dict(os.environ)
+        environ.start()
+        self.addCleanup(environ.stop)
+        os.environ.pop("CARGO_TARGET_DIR", None)
+
+    def exercise(self, output):
+        steps = self.root / check_tutorial.STEPS_FILE
+        steps.parent.mkdir(parents=True)
+        steps.write_text(f"# ANCHOR: suite-red\nprintf '{output}\\n' >&2\nexit 101\n"
+                         "# ANCHOR_END: suite-red\n")
+        steps.with_suffix(".out").write_text(
+            "# ANCHOR: suite-red\nerror: test failed, to rerun pass `--test adapter_http`\n"
+            "# ANCHOR_END: suite-red\n")
+        git(self.root, "add", "-A", "docs")
+        git(self.root, "commit", "-q", "-m", "steps")
+        with mock.patch.object(check_tutorial, "STEPS", {"suite-red": 101}), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as printed:
+            check_tutorial.check_exercise()
+        return printed.getvalue()
+
+    def test_a_coloured_test_failure_matches_the_plain_expected_line(self):
+        printed = self.exercise(self.TEST_FAILED)
+        self.assertIn("ok: steps.sh:suite-red (exit 101)\n"
+                      "    error: test failed, to rerun pass `--test adapter_http`\n", printed)
+
+    def test_a_coloured_compiler_error_is_not_a_test_failure(self):
+        compiler = r"\033[0m\033[1m\033[38;5;9merror[E0425]\033[0m\033[0m\033[1m: cannot find value"
+        with self.assertRaisesRegex(CheckFailed, "for a reason other than a test assertion"):
+            self.exercise(f"{compiler}\\n{self.TEST_FAILED}")
 
 
 if __name__ == "__main__":
