@@ -1,7 +1,7 @@
 //! Runs `scripts/test_check_tutorial.py`, the regression tests for how
-//! `scripts/check_tutorial.py` cleans up processes, starts the server and
-//! copies the repository (spec 0002, TUT-2 and TUT-3). Like `site_scripts`,
-//! this checks a script rather than Senu. It needs Linux, `bash`, `git` and
+//! `scripts/check_tutorial.py` reads check blocks, cleans up processes,
+//! starts and stops servers, and copies the repository (spec 0003, §8 and
+//! EX-2). Like `docs_sync`, this checks a script rather than Senu. It needs Linux, `bash`, `git` and
 //! `python3`, but builds nothing and leaves the repository unchanged.
 
 use std::process::Command;

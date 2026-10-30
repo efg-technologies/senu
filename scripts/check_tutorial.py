@@ -1,39 +1,43 @@
 #!/usr/bin/env python3
-"""Runs the tutorial's shared command snippets and checks their output.
+"""Runs the tutorial articles' commands and checks their output (spec 0003, §8).
 
-Usage: check_tutorial.py commands
-       check_tutorial.py exercise
+Usage: check_tutorial.py [--all-mismatches] [en|ja ...]
 
-Both tutorial languages include the same snippet files, so this checks the
-commands and expected output that readers see in English and in Japanese.
-A snippet section is the text between `ANCHOR: name` and `ANCHOR_END: name`
-lines, the syntax that mdBook's `{{#include file:name}}` uses.
+With no language, English runs first and then Japanese. Each language runs
+in its own fresh copy of the last commit (HEAD), so the learner's notes and
+edits of one language never affect the other. The checker refuses to run
+while tracked files differ from HEAD, and the real working tree must be
+unchanged at the end.
 
-`commands` runs from the repository root. It starts the server as the `serve`
-section of docs/tutorial/commands/serve.sh does, but on a free loopback port
-and with `bash -e`, so a failed build never starts an old binary, then runs every other section of docs/tutorial/commands/*.sh, replacing the
-documented http://127.0.0.1:3000 with the real address. Each section must
-exit 0 and print exactly the same-named section of the matching `.out` file.
-Other loopback ports in the output are compared as `PORT`.
+The fenced code blocks of content/<locale>/*.md, in file-name order, are
+the script. Their info strings, which the site does not show, say what to do:
 
-`exercise` unpacks the last commit (HEAD), and nothing else, into a new git
-repository in a temporary directory; it refuses to run while tracked files
-differ from HEAD, and refuses links that point out of the tree. It reuses a copy of target/debug when
-one exists, so only Senu itself is rebuilt there. It then runs the sections
-of docs/tutorial/exercise/steps.sh in order. Each must exit with the status
-listed in STEPS below, and the lines of its `.out` section must appear in its
-output in that order; a line ending in "..." matches by prefix. A failing
-step must fail on a test assertion, never on a patch, compiler or setup
-error. The temporary directory is removed, and the original working tree
-must be unchanged at the end.
+  sh check=<name> [exit=<n>] [server]   a command; it must exit with <n> (0)
+  text check=<name>                     the exact output of that command,
+                                        stdout and stderr merged
+  <lang> file=<path>                    the full new content of <path>, which
+                                        the paragraph before names in backticks
+  diff patch                            a patch applied with `git apply`
+  sh manual                             a command the checker cannot run
+                                        (cloning, installing); it is listed
 
-Every command runs in its own process group. When it ends, times out or the
-check fails, whatever is left of that group is killed, even if the command's
-shell has already exited; no other process is signalled.
+Any other `sh` block is an error; other blocks are only shown. A `server`
+command runs in the background with SENU_BIND=127.0.0.1:0 until the next
+server command or the end, and is then stopped as Ctrl+C would. Later
+commands see its real address in place of 127.0.0.1:3000, and its
+`text` block is its output up to the listening line. Before comparison the
+output loses terminal colours, and the real address, other loopback ports,
+test durations, thread ids in panic messages and `deps/senu-<hash>` are
+replaced by fixed text. A command that is expected to fail must not print a
+compiler error. At the end, src/reading.rs must match HEAD again.
 
-Exit status 0 means every check passed; on failure the reason, and the
-output of the failing step, go to stderr and the exit status is 1.
-Standard library only.
+The copy reuses dependency artifacts from target/debug, but never Senu's own
+outputs, so a stale binary cannot pass a check. Every command runs in its
+own process group with a 1800 s timeout; whatever is left of the group is
+killed when it ends. Exit status 0 means every check passed; otherwise the
+reasons go to stderr and the status is 1. --all-mismatches keeps going after
+an output mismatch and prints every actual output, for authors. Standard
+library only.
 """
 
 import difflib
@@ -48,80 +52,132 @@ import sys
 import tarfile
 import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
-COMMANDS = Path("docs/tutorial/commands")
-STEPS_FILE = Path("docs/tutorial/exercise/steps.sh")
-DOCUMENTED_URL = "http://127.0.0.1:3000"
-# Sections that are shown but not run here: cloning needs the network.
-UNCHECKED = {("setup.sh", "clone")}
-# The exercise sections, in order, with the exit status each must have.
-STEPS = {
-    "branch": 0,
-    "expect": 0,
-    "red": 101,
-    "rename": 0,
-    "green": 0,
-    "suite-red": 101,
-    "fixtures": 0,
-    "suite-green": 0,
-    "parity": 0,
-    "restore": 0,
-}
-ANCHOR = re.compile(r"ANCHOR(_END)?:\s*([A-Za-z0-9_-]+)")
-OTHER_PORT = re.compile(r"http://127\.0\.0\.1:(?!3000\b)\d+")
-# Terminal control sequences, such as the colours Cargo writes under
-# CARGO_TERM_COLOR=always; the expected output is plain text.
+LOCALES = ("en", "ja")
+DOCUMENTED = "127.0.0.1:3000"
+TIMEOUT = 1800
+FENCE = re.compile(r"^(`{3,})(.*)$")
+# Terminal control sequences, such as Cargo's colours under CARGO_TERM_COLOR.
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+OTHER_PORT = re.compile(r"127\.0\.0\.1:(?!3000\b)\d+")
+DURATION = re.compile(r"finished in \d+(\.\d+)?s")
+THREAD_ID = re.compile(r"(thread '[^']*') \(\d+\) panicked")
+SENU_HASH = re.compile(r"deps/senu-[0-9a-f]+")
+COMPILER_ERROR = re.compile(r"^error(\[E\d+\])?:")
+TEST_FAILED = "error: test failed, to rerun pass"
 
 
 class CheckFailed(Exception):
     pass
 
 
-def sections(path):
-    """The anchored sections of a snippet file, in file order."""
-    if not path.is_file():
-        raise CheckFailed(f"missing snippet file {path}")
-    found, current = {}, None
+class Block:
+    def __init__(self, path, line, info, body, paragraph):
+        self.path, self.line, self.body, self.paragraph = path, line, body, paragraph
+        words = info.split()
+        self.lang = words[0] if words else ""
+        self.attrs = {}
+        self.flags = set()
+        for word in words[1:]:
+            key, eq, value = word.partition("=")
+            if eq:
+                self.attrs[key] = value
+            else:
+                self.flags.add(key)
+
+    @property
+    def where(self):
+        return f"{self.path}:{self.line}"
+
+    @property
+    def kind(self):
+        if self.lang == "sh":
+            if "manual" in self.flags:
+                return "manual"
+            if "check" not in self.attrs:
+                raise CheckFailed(f"{self.where}: an sh block needs check=<name> or manual")
+            return "server" if "server" in self.flags else "command"
+        if "file" in self.attrs:
+            return "file"
+        if self.lang == "diff" and "patch" in self.flags:
+            return "patch"
+        if self.lang == "text" and "check" in self.attrs:
+            return "expected"
+        return "shown"
+
+
+def blocks(path, shown_as=None):
+    """The fenced blocks of one article, with the paragraph before each."""
+    # `paragraph` collects the lines of the paragraph being read, and `last`
+    # is the paragraph that ended at the latest blank line.
+    found, fence, paragraph, last, current = [], None, [], "", None
+    label = shown_as or path
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        match = ANCHOR.search(line)
-        if not match:
-            if current is not None:
-                found[current].append(line)
-            continue
-        end, name = match.groups()
-        if end and name != current or not end and (current is not None or name in found):
-            raise CheckFailed(f"{path}:{number}: unbalanced or repeated anchor {name}")
-        if end:
-            current = None
+        if fence is None:
+            match = FENCE.match(line)
+            if match:
+                fence = match.group(1)
+                current = (number, match.group(2).strip(), [], " ".join(paragraph) or last)
+                paragraph, last = [], ""
+            elif line.strip():
+                paragraph.append(line.strip())
+            elif paragraph:
+                paragraph, last = [], " ".join(paragraph)
+        elif line == fence:
+            number0, info, body, before = current
+            found.append(Block(label, number0, info, "".join(l + "\n" for l in body), before))
+            fence = None
         else:
-            found[name] = []
-            current = name
-    if current is not None:
-        raise CheckFailed(f"{path}: anchor {current} is never closed")
-    return {name: "".join(line + "\n" for line in lines) for name, lines in found.items()}
+            current[2].append(line)
+    if fence is not None:
+        raise CheckFailed(f"{label}: a code block is never closed")
+    return found
+
+
+def articles(root, locale):
+    return sorted((root / "content" / locale).glob("*.md"))
 
 
 def clean_env():
-    env = dict(os.environ)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SENU_")}
     for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
         env.pop(name, None)
     return env
+
+
+def exited(job):
+    """Whether `job` has exited, without reaping it. Until it is reaped, its
+    process id, which is also the id of its process group, stays reserved."""
+    flags = os.WEXITED | os.WNOHANG | os.WNOWAIT
+    return job.returncode is not None or os.waitid(os.P_PID, job.pid, flags) is not None
+
+
+def stop(job, first=signal.SIGTERM):
+    """Ends every process left in `job`'s process group, then reaps `job`.
+    The group is signalled only while `job` is unreaped, so its id cannot
+    belong to anyone else; this works even after `job` itself has exited."""
+    if job.returncode is not None:
+        return
+    # Whatever is left of the group gets every later signal too.
+    for sig in dict.fromkeys((first, signal.SIGTERM, signal.SIGKILL)):
+        try:
+            os.killpg(job.pid, sig)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 10
+        while sig != signal.SIGKILL and not exited(job) and time.monotonic() < deadline:
+            time.sleep(0.1)
+    job.wait(timeout=10)
 
 
 def run(script, cwd, env, timeout):
     """Runs `script` with bash; returns its exit status and output."""
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as log:
         job = subprocess.Popen(
-            ["bash", "-c", script],
-            cwd=cwd,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=log,
-            start_new_session=True,
+            ["bash", "-c", script], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+            stdout=log, stderr=log, start_new_session=True,
         )
         try:
             deadline = time.monotonic() + timeout
@@ -135,47 +191,23 @@ def run(script, cwd, env, timeout):
         return job.returncode, log.read()
 
 
-def exited(job):
-    """Whether `job` has exited, without reaping it. Until it is reaped, its
-    process id, which is also the id of its process group, stays reserved."""
-    flags = os.WEXITED | os.WNOHANG | os.WNOWAIT
-    return job.returncode is not None or os.waitid(os.P_PID, job.pid, flags) is not None
-
-
-def normalize(output, url=None):
-    output = ANSI_ESCAPE.sub("", output)
-    if url:
-        output = output.replace(url, DOCUMENTED_URL)
-    return OTHER_PORT.sub("http://127.0.0.1:PORT", output)
-
-
-def report(label, script, output):
-    return f"{label}\n--- commands\n{script}--- output\n{output}"
-
-
-def start_server(env):
-    """Runs the `serve` section on port 0 and returns (process, url, log)."""
-    serve = sections(ROOT / COMMANDS / "serve.sh")["serve"]
-    script = serve.replace("127.0.0.1:3000", "127.0.0.1:0")
-    if script == serve:
-        raise CheckFailed("serve.sh no longer binds 127.0.0.1:3000")
+def start_server(script, cwd, env, timeout=TIMEOUT):
+    """Starts a server command on port 0 with `bash -e`, so a failed build
+    never starts an old binary. Returns (process, address, output, log)."""
+    env = dict(env, SENU_BIND="127.0.0.1:0")
     log = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
     server = subprocess.Popen(
-        ["bash", "-e", "-c", script],
-        cwd=ROOT,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=log,
-        stderr=log,
-        start_new_session=True,
+        ["bash", "-e", "-c", script], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+        stdout=log, stderr=log, start_new_session=True,
     )
-    deadline = time.monotonic() + 600
+    deadline = time.monotonic() + timeout
     try:
         while time.monotonic() < deadline and not exited(server):
             log.seek(0)
-            for line in log.read().splitlines():
-                if line.startswith("senu: listening on http://127.0.0.1:"):
-                    return server, line.removeprefix("senu: listening on "), log
+            text = log.read()
+            match = re.search(r"^senu: listening on http://(127\.0\.0\.1:\d+)\n", text, re.M)
+            if match:
+                return server, match.group(1), text[: match.end()], log
             time.sleep(0.2)
     except BaseException:
         stop(server)
@@ -185,80 +217,24 @@ def start_server(env):
     log.seek(0)
     text = log.read()
     log.close()
-    raise CheckFailed(f"the serve section did not start a server:\n{text}")
+    raise CheckFailed(f"the server command did not start a server:\n{script}--- output\n{text}")
 
 
-def stop(job):
-    """Ends every process left in `job`'s process group, then reaps `job`.
-    The group is signalled only while `job` is unreaped, so its id cannot
-    belong to anyone else; this works even after `job` itself has exited."""
-    if job.returncode is not None:
-        return
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(job.pid, sig)
-        except ProcessLookupError:
-            pass
-        deadline = time.monotonic() + 10
-        while sig == signal.SIGTERM and not exited(job) and time.monotonic() < deadline:
-            time.sleep(0.1)
-    job.wait(timeout=10)
+def normalize(output, address=None):
+    output = ANSI_ESCAPE.sub("", output)
+    if address:
+        output = output.replace(address, DOCUMENTED)
+    output = OTHER_PORT.sub("127.0.0.1:PORT", output)
+    output = DURATION.sub("finished in 0.00s", output)
+    output = THREAD_ID.sub(r"\1 (ID) panicked", output)
+    return SENU_HASH.sub("deps/senu-HASH", output)
 
 
-def check_commands():
-    env = clean_env()
-    server, url, log = start_server(env)
-    try:
-        expected_serve = sections(ROOT / COMMANDS / "serve.out")["serve"]
-        log.seek(0)
-        listening = [line for line in log.read().splitlines() if line.startswith("senu: ")]
-        got = "\n".join(listening).replace(url, DOCUMENTED_URL) + "\n"
-        if got != expected_serve:
-            raise CheckFailed(f"serve.sh:serve printed\n{got}expected\n{expected_serve}")
-        print("ok: serve.sh:serve")
-        for script_path in sorted((ROOT / COMMANDS).glob("*.sh")):
-            scripts = sections(script_path)
-            expected = sections(script_path.with_suffix(".out"))
-            for name, script in scripts.items():
-                label = f"{script_path.name}:{name}"
-                if (script_path.name, name) in UNCHECKED or label == "serve.sh:serve":
-                    continue
-                if name not in expected:
-                    raise CheckFailed(f"{label} has no expected output")
-                status, output = run(script.replace(DOCUMENTED_URL, url), ROOT, env, 600)
-                output = normalize(output, url)
-                if status != 0 or output != expected[name]:
-                    diff = "".join(
-                        difflib.unified_diff(
-                            expected[name].splitlines(True),
-                            output.splitlines(True),
-                            "expected",
-                            "actual",
-                        )
-                    )
-                    raise CheckFailed(f"{label} exited {status}; output differs:\n{diff}")
-                print(f"ok: {label}")
-            extra = set(expected) - set(scripts)
-            if extra:
-                raise CheckFailed(f"{script_path.with_suffix('.out').name}: no commands for {sorted(extra)}")
-    finally:
-        stop(server)
-        log.close()
-
-
-def appears_in_order(expected, output):
-    """The output lines that match `expected`, or the first missing line."""
-    lines, found = iter(output.splitlines()), []
-    for want in expected.splitlines():
-        prefix = want[:-3] if want.endswith("...") else None
-        line = next(
-            (l for l in lines if (l.startswith(prefix) if prefix is not None else l == want)),
-            None,
-        )
-        if line is None:
-            return want, found
-        found.append(line)
-    return None, found
+def git(args, cwd):
+    done = subprocess.run(["git", *args], cwd=cwd, env=clean_env(), capture_output=True, check=False)
+    if done.returncode != 0:
+        raise CheckFailed(f"git {' '.join(args)} failed: {done.stderr.decode(errors='replace')}")
+    return done.stdout
 
 
 def snapshot():
@@ -273,21 +249,19 @@ def snapshot():
     return digest.hexdigest()
 
 
-def git(args, cwd):
-    done = subprocess.run(
-        ["git", *args], cwd=cwd, env=clean_env(), capture_output=True, check=False
-    )
-    if done.returncode != 0:
-        raise CheckFailed(f"git {' '.join(args)} failed: {done.stderr.decode(errors='replace')}")
-    return done.stdout
+def own_outputs(root):
+    """Names of build outputs that belong to Senu itself rather than to a
+    dependency: the package and every integration test target."""
+    return {"senu"} | {path.stem for path in (root / "tests").glob("*.rs")}
 
 
 def copy_tree(work):
-    """Unpacks the committed HEAD, and nothing else, into a new repository."""
+    """Unpacks the committed HEAD, and nothing else, into a new repository,
+    and seeds it with dependency artifacts only."""
     changed = git(["status", "--porcelain", "--untracked-files=no"], ROOT)
     if changed:
         raise CheckFailed(
-            "the exercise check runs on the last commit, but tracked files differ"
+            "the tutorial check runs on the last commit, but tracked files differ"
             " from it; commit or stash them first:\n" + changed.decode(errors="replace")
         )
     archive = git(["archive", "--format=tar", "HEAD"], ROOT)
@@ -310,67 +284,153 @@ def copy_tree(work):
         return
     seeded = work / "target" / "debug"
     seeded.mkdir(parents=True)
+    own = own_outputs(work)
     for part in ("deps", "build", ".fingerprint"):
-        if (cache / part).is_dir():
-            copied = subprocess.run(
-                ["cp", "-a", "--reflink=auto", str(cache / part), str(seeded)],
-                capture_output=True,
-            )
-            if copied.returncode != 0:
-                shutil.copytree(cache / part, seeded / part, symlinks=True, dirs_exist_ok=True)
+        if not (cache / part).is_dir():
+            continue
+        copied = subprocess.run(
+            ["cp", "-a", "--reflink=auto", str(cache / part), str(seeded)], capture_output=True
+        )
+        if copied.returncode != 0:
+            shutil.copytree(cache / part, seeded / part, symlinks=True, dirs_exist_ok=True)
+        for entry in (seeded / part).iterdir():
+            if entry.name.removeprefix("lib").rsplit("-", 1)[0] in own:
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
 
 
-def check_exercise():
+def check_file_path(block):
+    path = block.attrs["file"]
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or ".." in pure.parts or pure.parts[0] not in ("content", "src"):
+        raise CheckFailed(f"{block.where}: file={path} must stay under content/ or src/")
+    if f"`{path}`" not in block.paragraph:
+        raise CheckFailed(f"{block.where}: the paragraph before must name `{path}`")
+    return pure
+
+
+class Session:
+    """Runs one language's blocks in a copy."""
+
+    def __init__(self, work, env, all_mismatches):
+        self.work, self.env, self.all_mismatches = work, env, all_mismatches
+        self.server = None
+        self.address = None
+        self.last = None  # (name, output) of the last command
+        self.mismatches = []
+        self.manual = []
+
+    def stop_server(self):
+        if self.server is not None:
+            process, log = self.server
+            stop(process, first=signal.SIGINT)
+            log.close()
+            self.server = None
+            self.address = None
+
+    def step(self, block):
+        kind = block.kind
+        if kind in ("command", "server"):
+            self.command(block, kind)
+        elif kind == "expected":
+            self.compare(block)
+        elif kind == "file":
+            target = self.work / check_file_path(block)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(block.body, encoding="utf-8")
+            print(f"ok: {block.where}: wrote {block.attrs['file']}")
+        elif kind == "patch":
+            with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False) as patch:
+                patch.write(block.body)
+            try:
+                status, output = run(f"git apply '{patch.name}'", self.work, self.env, 60)
+            finally:
+                os.unlink(patch.name)
+            if status != 0:
+                raise CheckFailed(f"{block.where}: the patch does not apply:\n{output}")
+            print(f"ok: {block.where}: applied the patch")
+        elif kind == "manual":
+            self.manual.append(block.where)
+
+    def command(self, block, kind):
+        name = block.attrs["check"]
+        want = int(block.attrs.get("exit", "0"))
+        script = block.body
+        if kind == "server":
+            self.stop_server()
+            process, self.address, output, log = start_server(script, self.work, self.env)
+            self.server = (process, log)
+            status = 0
+        else:
+            if self.address:
+                script = script.replace(DOCUMENTED, self.address)
+            status, output = run(script, self.work, self.env, TIMEOUT)
+        output = normalize(output, self.address)
+        label = f"{block.where}: {name}"
+        if status != want:
+            raise CheckFailed(f"{label} exited {status}, expected {want}\n--- commands\n{block.body}--- output\n{output}")
+        if want != 0 and any(
+            COMPILER_ERROR.match(line) and not line.startswith(TEST_FAILED)
+            for line in output.splitlines()
+        ):
+            raise CheckFailed(f"{label} failed for a reason other than the expected one:\n{output}")
+        self.last = (name, output)
+        print(f"ok: {label} (exit {status})")
+
+    def compare(self, block):
+        name = block.attrs["check"]
+        if self.last is None or self.last[0] != name:
+            raise CheckFailed(f"{block.where}: text check={name} does not follow its command")
+        output = self.last[1]
+        self.last = None
+        if output == block.body:
+            print(f"ok: {block.where}: {name} output matches")
+            return
+        diff = "".join(difflib.unified_diff(
+            block.body.splitlines(True), output.splitlines(True), "expected", "actual"))
+        message = f"{block.where}: {name} output differs:\n{diff}--- actual output\n{output}--- end"
+        if not self.all_mismatches:
+            raise CheckFailed(message)
+        self.mismatches.append(message)
+
+
+def check_language(locale, all_mismatches=False):
     before = snapshot()
-    scripts = sections(ROOT / STEPS_FILE)
-    expected = sections((ROOT / STEPS_FILE).with_suffix(".out"))
-    if list(scripts) != list(STEPS) or set(expected) != set(STEPS):
-        raise CheckFailed(f"{STEPS_FILE} and its .out must have the sections {list(STEPS)}")
-    with tempfile.TemporaryDirectory(prefix="senu-tutorial-") as tmp:
+    with tempfile.TemporaryDirectory(prefix=f"senu-tutorial-{locale}-") as tmp:
         work = Path(tmp) / "senu"
         copy_tree(work)
         env = clean_env()
         env["CARGO_TARGET_DIR"] = str(work / "target")
-        for name, status in STEPS.items():
-            got, output = run(scripts[name], work, env, 1800)
-            output = normalize(output)
-            label = f"steps.sh:{name}"
-            failure = None
-            missing, found = appears_in_order(expected[name], output)
-            if got != status:
-                failure = f"{label} exited {got}, expected {status}"
-            elif missing is not None:
-                failure = f"{label}: expected line not found in order: {missing}"
-            elif status != 0 and any(
-                line.startswith("error") and not line.startswith("error: test failed, to rerun pass")
-                for line in output.splitlines()
-            ):
-                failure = f"{label} failed for a reason other than a test assertion"
-            elif status == 0 and name.startswith("suite"):
-                results = [l for l in output.splitlines() if l.startswith("test result: ")]
-                if not results or not all(l.startswith("test result: ok.") for l in results):
-                    failure = f"{label}: not every test binary passed"
-            elif name == "parity" and "Apollo" in output:
-                failure = f"{label}: an output still shows the old name"
-            if failure:
-                raise CheckFailed(report(failure, scripts[name], output))
-            print(f"ok: {label} (exit {got})")
-            if status != 0:
-                print("".join(f"    {line}\n" for line in found), end="")
-        if git(["status", "--porcelain"], work) or git(["branch", "--show-current"], work) != b"main\n":
-            raise CheckFailed("the restore step did not return the copy to its original state")
+        session = Session(work, env, all_mismatches)
+        try:
+            for path in articles(work, locale):
+                for block in blocks(path, shown_as=path.relative_to(work)):
+                    session.step(block)
+        finally:
+            session.stop_server()
+        for where in session.manual:
+            print(f"not run: {where} (manual)")
+        if git(["status", "--porcelain", "--", "src/reading.rs"], work):
+            raise CheckFailed("src/reading.rs differs from HEAD after the tutorial")
+        print(f"ok: {locale}: src/reading.rs matches HEAD")
+        if session.mismatches:
+            raise CheckFailed("\n\n".join(session.mismatches))
     if snapshot() != before:
-        raise CheckFailed("the original working tree changed during the exercise check")
-    print("ok: the original working tree is unchanged")
+        raise CheckFailed("the original working tree changed during the tutorial check")
+    print(f"ok: {locale}: the original working tree is unchanged")
 
 
 def main(argv):
-    modes = {"commands": check_commands, "exercise": check_exercise}
-    if len(argv) != 1 or argv[0] not in modes:
-        print("usage: check_tutorial.py commands|exercise", file=sys.stderr)
+    all_mismatches = "--all-mismatches" in argv
+    locales = [arg for arg in argv if arg != "--all-mismatches"] or list(LOCALES)
+    if any(locale not in LOCALES for locale in locales):
+        print("usage: check_tutorial.py [--all-mismatches] [en|ja ...]", file=sys.stderr)
         return 2
     try:
-        modes[argv[0]]()
+        for locale in locales:
+            check_language(locale, all_mismatches)
         return 0
     except CheckFailed as err:
         print(f"check_tutorial: {err}", file=sys.stderr)

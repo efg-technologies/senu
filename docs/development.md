@@ -710,3 +710,24 @@ command, its exit status and the decisive lines.
   `/api/projects` and `/mcp`, 405 with `Allow: GET`, no `WWW-Authenticate`,
   identical bodies with `Authorization`, and that no response contains the
   repository path, the working directory or a sentinel.
+
+### Tutorial checker (`scripts/check_tutorial.py`, EX-1, EX-2)
+
+The checker now reads the fenced blocks of `content/<locale>/*.md` and runs
+each language in its own copy of HEAD; it keeps the earlier process-group,
+fail-fast-server, copy-only-the-commit and ANSI fixes, and drops Senu's own
+build outputs from the seeded cache.
+
+- Red (found by the first real run, then pinned by a test): the paragraph
+  before a `file=` block was cleared by the blank line in front of the
+  fence, so `content/en/04-first-note.md:20` was refused with "the paragraph
+  before must name …". With that fix reverted,
+  `python3 scripts/test_check_tutorial.py` exited 1: `Ran 16 tests`,
+  `FAILED (failures=4, errors=2)`.
+- Green: with the fix, the same command exited 0 (`Ran 16 tests`, `OK`) in
+  three consecutive runs. The tests cover timeouts and grandchildren,
+  Ctrl+C first for servers, a failed build never starting an old binary, an
+  untracked note and stale `senu` artifacts never reaching the copy, refused
+  dirty trees and links out of the tree, block parsing and file paths, ANSI
+  and thread-id normalization, coloured compiler errors, and a changed
+  `src/reading.rs`.
