@@ -175,10 +175,13 @@ def start_server(env):
             time.sleep(0.2)
     except BaseException:
         stop(server)
+        log.close()
         raise
     stop(server)
     log.seek(0)
-    raise CheckFailed(f"the serve section did not start a server:\n{log.read()}")
+    text = log.read()
+    log.close()
+    raise CheckFailed(f"the serve section did not start a server:\n{text}")
 
 
 def stop(job):
