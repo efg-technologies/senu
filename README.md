@@ -37,16 +37,18 @@ software. It makes no performance or security claims.
 ## Quickstart
 
 You need the Rust toolchain pinned in `rust-toolchain.toml` (for example
-through rustup), `bash` and `curl`. From a clone, run `scripts/quickstart.sh`. This is the
-whole script:
+through rustup), `bash`, `curl` and `python3`. From a clone, run
+`scripts/quickstart.sh`. This is the whole script:
 
 ```sh
 #!/usr/bin/env bash
 # Senu quickstart: build, call the JSON API and the HTML page, then call the
-# MCP tool over stdio. Run it from a clone of the repository. The credentials
-# are demo values for a loopback-only server; choose your own for anything else.
+# MCP tool over stdio and check every reply. Run it from a clone of the
+# repository; it needs cargo, curl and python3. The credentials are demo values
+# for a loopback-only server; choose your own for anything else.
 set -euo pipefail
 
+command -v python3 >/dev/null || { echo "quickstart: python3 is required" >&2; exit 1; }
 cargo build --locked --quiet
 senu=./target/debug/senu
 log=$(mktemp)
@@ -70,13 +72,15 @@ echo
 echo "== HTML page (Basic): $url/projects?q=launch"
 curl -fsS -u demo:demo-password "$url/projects?q=launch" | grep 'data-project-id'
 
-echo "== MCP over stdio: tools/call list_projects {\"q\":\"launch\"}"
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"quickstart","version":"0"}}}' \
-  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_projects","arguments":{"q":"launch"}}}' |
-  SENU_MCP_TOKEN=demo-mcp-token "$senu" mcp --enable-mcp | tail -n 1
+echo "== MCP over stdio: initialize, then tools/call list_projects {\"q\":\"launch\"}"
+SENU_MCP_TOKEN=demo-mcp-token python3 scripts/check_mcp.py "$senu" mcp --enable-mcp
 ```
+
+The MCP step runs `scripts/check_mcp.py`, a small client that uses only the
+Python standard library. It waits for the `initialize` reply before calling
+the tool, and it fails, killing the server, unless each reply carries the
+request's id, no JSON-RPC error and no `isError`, and the call returns
+acme-001 and acme-003. Any failed step makes the quickstart exit non-zero.
 
 The HTML output shows Askama's escaping: the demo project named
 `<script>alert('x')</script> & "Launch" Notes` is rendered as text.
@@ -140,7 +144,9 @@ cargo test --locked -- --test-threads=2
 scripts/quickstart.sh
 ```
 
-CI runs the same commands on GitHub-hosted Ubuntu. Read
+The tests include `tests/quickstart_check.rs`, which runs the quickstart's MCP
+checker against fake servers and needs `python3`. CI runs the same commands
+on GitHub-hosted Ubuntu. Read
 [the spec](docs/specs/0001-project-catalogue.md),
 [the development log](docs/development.md) and
 [the research notes](docs/research.md) for the details.

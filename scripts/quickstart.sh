@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Senu quickstart: build, call the JSON API and the HTML page, then call the
-# MCP tool over stdio. Run it from a clone of the repository. The credentials
-# are demo values for a loopback-only server; choose your own for anything else.
+# MCP tool over stdio and check every reply. Run it from a clone of the
+# repository; it needs cargo, curl and python3. The credentials are demo values
+# for a loopback-only server; choose your own for anything else.
 set -euo pipefail
 
+command -v python3 >/dev/null || { echo "quickstart: python3 is required" >&2; exit 1; }
 cargo build --locked --quiet
 senu=./target/debug/senu
 log=$(mktemp)
@@ -27,9 +29,5 @@ echo
 echo "== HTML page (Basic): $url/projects?q=launch"
 curl -fsS -u demo:demo-password "$url/projects?q=launch" | grep 'data-project-id'
 
-echo "== MCP over stdio: tools/call list_projects {\"q\":\"launch\"}"
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"quickstart","version":"0"}}}' \
-  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_projects","arguments":{"q":"launch"}}}' |
-  SENU_MCP_TOKEN=demo-mcp-token "$senu" mcp --enable-mcp | tail -n 1
+echo "== MCP over stdio: initialize, then tools/call list_projects {\"q\":\"launch\"}"
+SENU_MCP_TOKEN=demo-mcp-token python3 scripts/check_mcp.py "$senu" mcp --enable-mcp

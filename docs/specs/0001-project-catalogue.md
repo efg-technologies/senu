@@ -77,7 +77,7 @@ Pin Axum 0.8.x, plus the current versions of Tokio, serde, serde_json, Askama, r
 - **MCP-3** Calling the in-process handler with a principal that has no permissions returns `isError` with `forbidden`.
 - **X-1** For each `q` in {none, `launch`, `" CAFÉ "`, `zephyr`}, three outputs equal the direct `list_projects` output: the API `projects`, MCP `structuredContent.projects`, and the HTML items (ids in order, names unescaped).
 - **DOC-1** `README.md`, `README.ja.md`, `LICENSE`, `docs/research.md`, and this spec exist. Every advertised command and route has a test.
-- **DOC-2** Both READMEs embed `scripts/quickstart.sh` byte-for-byte, and a test checks this. CI runs the script and it succeeds.
+- **DOC-2** Both READMEs embed `scripts/quickstart.sh` byte-for-byte, and a test checks this. CI runs the script and it succeeds. The script fails unless the MCP `initialize` reply arrives before the call and every MCP reply has the request's id, no JSON-RPC error and no `isError`, with the call returning acme-001 and acme-003.
 - **DOC-3** `docs/research.md` records the following:
   - pinned versions and the sources inspected on 2026-10-30: https://docs.rs/axum/latest/axum/ (showing 0.8.9), https://askama.rs/en/stable/configuration.html, https://rust.sdk.modelcontextprotocol.io/, https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization, and https://doc.rust-lang.org/book/ch11-03-test-organization.html;
   - Loco commit `0fcc2a312d4b43a9972afdf969980d9ceb646cf2`, with the files reviewed (`src/controller/mod.rs`, `skills/loco/recipes/testing.md`) and its license (Apache-2.0, copyright Dotan Nahum and Elad Kaplan);

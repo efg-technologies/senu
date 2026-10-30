@@ -35,16 +35,18 @@ Senu は動かせるシードであって製品ではなく、監査済みのセ
 ## クイックスタート
 
 `rust-toolchain.toml` で固定した Rust ツールチェーン (rustup などで導入)、
-`bash`、`curl` が必要です。clone したディレクトリで `scripts/quickstart.sh` を
+`bash`、`curl`、`python3` が必要です。clone したディレクトリで `scripts/quickstart.sh` を
 実行します。スクリプトの全文は次のとおりです。
 
 ```sh
 #!/usr/bin/env bash
 # Senu quickstart: build, call the JSON API and the HTML page, then call the
-# MCP tool over stdio. Run it from a clone of the repository. The credentials
-# are demo values for a loopback-only server; choose your own for anything else.
+# MCP tool over stdio and check every reply. Run it from a clone of the
+# repository; it needs cargo, curl and python3. The credentials are demo values
+# for a loopback-only server; choose your own for anything else.
 set -euo pipefail
 
+command -v python3 >/dev/null || { echo "quickstart: python3 is required" >&2; exit 1; }
 cargo build --locked --quiet
 senu=./target/debug/senu
 log=$(mktemp)
@@ -68,13 +70,15 @@ echo
 echo "== HTML page (Basic): $url/projects?q=launch"
 curl -fsS -u demo:demo-password "$url/projects?q=launch" | grep 'data-project-id'
 
-echo "== MCP over stdio: tools/call list_projects {\"q\":\"launch\"}"
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"quickstart","version":"0"}}}' \
-  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_projects","arguments":{"q":"launch"}}}' |
-  SENU_MCP_TOKEN=demo-mcp-token "$senu" mcp --enable-mcp | tail -n 1
+echo "== MCP over stdio: initialize, then tools/call list_projects {\"q\":\"launch\"}"
+SENU_MCP_TOKEN=demo-mcp-token python3 scripts/check_mcp.py "$senu" mcp --enable-mcp
 ```
+
+MCP の手順では、Python の標準ライブラリだけを使う小さなクライアント
+`scripts/check_mcp.py` を実行します。`initialize` の応答を待ってからツールを呼び出し、
+各応答の id が要求と一致し、JSON-RPC エラーも `isError` もなく、プロジェクト acme-001 と
+acme-003 が返った場合にだけ成功します。そうでなければサーバーを終了させて失敗し、
+いずれかの手順が失敗すると quickstart は 0 以外の終了コードで終わります。
 
 HTML の出力では Askama のエスケープが働き、`<script>alert('x')</script> & "Launch" Notes`
 という名前のデモプロジェクトが文字列として表示されます。
@@ -136,7 +140,9 @@ cargo test --locked -- --test-threads=2
 scripts/quickstart.sh
 ```
 
-CI は GitHub がホストする Ubuntu で同じコマンドを実行します。詳細は
+テストには、quickstart の MCP チェッカーを偽のサーバーに対して動かす
+`tests/quickstart_check.rs` が含まれ、`python3` が必要です。CI は GitHub が
+ホストする Ubuntu で同じコマンドを実行します。詳細は
 [仕様](docs/specs/0001-project-catalogue.md)、[開発ログ](docs/development.md)、
 [調査メモ](docs/research.md) を参照してください (いずれも英語)。
 

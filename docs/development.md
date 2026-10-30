@@ -277,7 +277,8 @@ Basic, then pipes `initialize`, `notifications/initialized` and one
 exit. Piping all requests and then closing stdin is reliable because rmcp
 drains in-flight responses after EOF (see `docs/research.md`); 20 repeated
 runs of that MCP pipeline against the built binary all returned both replies
-and exited 0.
+and exited 0. Commit 12 replaced the pipe with a client that checks each
+reply (see below).
 
 `tests/docs_sync.rs` (DOC-2) was written after the READMEs, so it had no red
 phase. As a check that it can fail, one line was appended to the script
@@ -370,3 +371,68 @@ The E2E test-function count stays at 5.
 |---|---|---|
 | `cargo test --locked --no-fail-fast --test e2e_mcp` (test only) | 101 | 1 passed, 1 failed: "the error repeats the method name or params" (the `-32601` code check before it passed) |
 | `cargo test --locked --no-fail-fast --test e2e_mcp --test adapter_mcp` (fix) | 0 | e2e_mcp 2, adapter_mcp 9 passed |
+
+## Commit 12: quickstart checks every MCP reply (second independent review)
+
+The review's third finding: the quickstart piped three messages into
+`senu mcp --enable-mcp` and printed the last stdout line with `tail -n 1`, so
+a JSON-RPC error or an `isError` result still exited 0. Reproduced before the
+fix with the same pipeline and only the tool name changed: it printed
+`{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"unknown tool"}}`
+and exited 0 under `pipefail`.
+
+`scripts/check_mcp.py` is a small client that uses only the Python standard
+library. It sends `initialize` and waits for the reply, which must report a
+protocol version and the tools capability. Only then does it send
+`notifications/initialized` and the `tools/call`, and wait for that reply.
+Each reply must be the next stdout line, a JSON-RPC 2.0 response with the
+request's id and a result rather than an error. The call must not have
+`isError` set and must list exactly acme-001 and acme-003. After that, stdin
+is closed, and the server must exit 0 without further stdout. Every wait is
+bounded (10 s by default, `--timeout` for tests), and on any failure the
+child is killed and reaped and the checker exits 1 with the reason on stderr,
+printing no reply. The quickstart calls it as its last command under
+`set -euo pipefail`, checks for `python3` first, and still kills and reaps the
+HTTP server on exit. Both READMEs embed the new script byte for byte, list
+`python3` as a prerequisite and describe the check. CI prints
+`python3 --version` before the tests. The change is about validation: no
+pipelining race was observed, and none is claimed.
+
+Tests, written first: `tests/quickstart_check.rs` runs the checker against
+a fake `sh` server that prints canned replies. One function checks a
+well-formed session (exit 0, only the call reply on stdout). A table of 13
+cases checks malformed JSON, a non-2.0 reply, an `initialize` error, a wrong
+`initialize` id, a missing tools capability, EOF before each reply, a
+`tools/call` JSON-RPC error, a wrong call id, `isError`, the wrong projects,
+extra output and a non-zero exit. Each must exit 1, print nothing on stdout
+and name its reason on stderr. A third function gives a silent server a 1 s
+timeout and then checks that its process no longer exists. Like `docs_sync`,
+these tests check a script and are not part of the test pyramid.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo test --locked --no-fail-fast --test quickstart_check` (tests only) | 101 | 0 passed, 3 failed: the checker did not exist yet (`python3: can't open file .../scripts/check_mcp.py`) |
+| same command (checker) | 0 | 3 passed |
+
+That red run shows only that the tests need the checker; the `tail -n 1`
+reproduction above is the evidence for the original defect. Two more
+mutation runs used a temporary copy of the checker whose call named an
+unknown tool. Against the built binary it exited 1 with
+"request 2 failed with a JSON-RPC error". A temporary copy of the quickstart
+that used it also exited 1, with no `senu` process left. The unmodified
+checker against the same binary printed the call reply and exited 0.
+
+## Final checks after the second review fixes
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings |
+| `cargo test --locked -- --test-threads=2` | 0 | 121 passed: lib 83, adapter_http 19, adapter_mcp 9, adapter_parity 1, docs_sync 1, e2e_mcp 2, e2e_serve 3, quickstart_check 3 |
+| `scripts/quickstart.sh` | 0 | API JSON, two escaped HTML items, and the checked MCP call reply; no `senu` process left |
+
+Test pyramid (spec §5): 83 unit tests, 29 adapter tests and 5 E2E test
+functions (at most six allowed). `docs_sync` and `quickstart_check` check
+documentation and a script and are not part of the pyramid. CI has not run
+these commits; publication is still waiting for the owner's license decision
+(D1).
