@@ -731,3 +731,21 @@ build outputs from the seeded cache.
   dirty trees and links out of the tree, block parsing and file paths, ANSI
   and thread-id normalization, coloured compiler errors, and a changed
   `src/reading.rs`.
+
+### The course in both languages (NAV-1, EX-1, CNT-2)
+
+- `python3 scripts/check_tutorial.py --all-mismatches en ja`, run through
+  the bounded wrapper on the committed course, exited 0: every `text` block
+  matched its command in both languages (184 `ok:` lines), the two
+  `sh manual` clone blocks were listed as not run, `src/reading.rs` matched
+  HEAD after each language, and the real tree was unchanged. The expected
+  outputs had been copied from the first run's actual output.
+- The run exercises CNT-2 without `cargo clean`: after adding
+  `51-my-first-note.md` it is served and listed, after editing the sample
+  note the new title is served, and after deleting `52-Scratch.md` the page
+  is `Not Found` and `grep scratch` finds nothing in the index.
+- Chapter 06's red steps fail on assertions (`left: 0 right: 1`) and on
+  "attempt to add with overflow", never on a compiler error.
+- NAV-1 sync test: changing one Japanese command made
+  `cargo test -q --test docs_sync` exit 101 (`3 passed; 1 failed`, "commands,
+  patches and Rust files"); restored, it passed `4 passed`.

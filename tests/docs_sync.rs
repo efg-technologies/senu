@@ -1,5 +1,10 @@
-//! DOC-2: both READMEs embed `scripts/quickstart.sh` byte for byte, and the
-//! tutorial languages share chapters and snippets (spec 0002).
+//! DOC-2: both READMEs embed `scripts/quickstart.sh` byte for byte. NAV-1
+//! (spec 0003): both languages have every chapter of the course, each
+//! chapter links to its translation, and the two languages run the same
+//! checked commands.
+
+use senu::content::EMBEDDED;
+use senu::site::Site;
 
 fn read(path: &str) -> String {
     let full = format!("{}/{path}", env!("CARGO_MANIFEST_DIR"));
@@ -21,55 +26,112 @@ fn readmes_embed_the_quickstart_script_exactly() {
     }
 }
 
-/// The chapters of one tutorial language, in SUMMARY.md order.
-fn tutorial_chapters(dir: &str) -> Vec<String> {
-    read(&format!("{dir}/SUMMARY.md"))
-        .lines()
-        .filter_map(|line| line.split_once("](")?.1.strip_suffix(')'))
-        .map(str::to_owned)
-        .collect()
-}
+/// The course's chapters, as in the table of spec 0003, §8. Learner notes
+/// outside this table are ignored.
+const CHAPTERS: [&str; 10] = [
+    "01-start",
+    "02-install",
+    "03-first-page",
+    "04-first-note",
+    "05-when-senu-says-no",
+    "06-first-function",
+    "07-next-steps",
+    "50-sample-note",
+    "90-appendix-catalogue",
+    "91-appendix-mcp",
+];
 
-/// The repository files and sections a chapter includes, in order. Every
-/// line of a shell block must be an include, so no command is written out
-/// by hand in either language.
-fn tutorial_includes(dir: &str, chapter: &str) -> Vec<String> {
-    let root = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap();
-    let base = root.join(dir);
-    let mut includes = Vec::new();
-    let mut in_shell = false;
-    for line in read(&format!("{dir}/{chapter}")).lines() {
-        if line.starts_with("```") {
-            in_shell = line == "```sh";
-        }
-        let directive = line
-            .strip_prefix("{{#include ")
-            .and_then(|rest| rest.strip_suffix("}}"));
-        if in_shell && !line.starts_with("```") {
-            assert!(directive.is_some(), "{dir}/{chapter}: shell line {line:?}");
-        }
-        if let Some(target) = directive {
-            let (path, section) = target.split_once(':').unwrap_or((target, ""));
-            let full = std::fs::canonicalize(base.join(path))
-                .unwrap_or_else(|err| panic!("{dir}/{chapter}: {path}: {err}"));
-            let rel = full.strip_prefix(&root).unwrap().display();
-            includes.push(format!("{rel}:{section}"));
-        }
-    }
-    includes
+fn slug(chapter: &str) -> &str {
+    &chapter[3..]
 }
 
 #[test]
-fn tutorial_languages_share_chapters_and_snippets() {
-    let (en, ja) = ("docs/tutorial/src", "docs/tutorial/src/ja");
-    let chapters = tutorial_chapters(en);
-    assert_eq!(chapters.len(), 6, "{chapters:?}");
-    assert_eq!(tutorial_chapters(ja), chapters, "chapter files and order");
-    for chapter in &chapters {
+fn both_languages_have_every_chapter() {
+    for locale in ["en", "ja"] {
+        let names: Vec<String> = EMBEDDED
+            .iter()
+            .filter_map(|(path, _)| {
+                path.strip_prefix(&format!("content/{locale}/"))?
+                    .strip_suffix(".md")
+            })
+            .filter(|name| CHAPTERS.contains(name))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(names, CHAPTERS, "content/{locale}");
+    }
+}
+
+#[test]
+fn every_chapter_links_to_its_translation() {
+    let site = Site::load(EMBEDDED).expect("the embedded articles load");
+    for chapter in CHAPTERS {
+        let slug = slug(chapter);
+        for (page, pair) in [
+            (format!("/{slug}"), format!("/ja/{slug}")),
+            (format!("/ja/{slug}"), format!("/{slug}")),
+        ] {
+            let html = site.page(&page).unwrap_or_else(|| panic!("no page {page}"));
+            assert!(
+                html.contains(&format!("<a class=\"lang\" href=\"{pair}\"")),
+                "{page} does not link to {pair}"
+            );
+        }
+    }
+}
+
+/// The checked blocks of one article: the info string and, for commands,
+/// patches and Rust files, the text. Japanese paths are mapped to English.
+fn checked_blocks(locale: &str, chapter: &str) -> Vec<(String, Option<String>)> {
+    let english = |text: &str| {
+        text.replace("content/ja/", "content/en/")
+            .replace("/ja/", "/")
+    };
+    let mut blocks = Vec::new();
+    let mut open: Option<(String, String)> = None;
+    for line in read(&format!("content/{locale}/{chapter}.md")).lines() {
+        match open.take() {
+            None => {
+                if let Some(info) = line.strip_prefix("```") {
+                    open = Some((info.to_owned(), String::new()));
+                }
+            }
+            Some((info, body)) if line == "```" => {
+                let words: Vec<&str> = info.split_whitespace().collect();
+                let checked = words
+                    .iter()
+                    .any(|w| w.starts_with("check=") || w.starts_with("file="))
+                    || words == ["diff", "patch"]
+                    || words == ["sh", "manual"];
+                let compared = words
+                    .first()
+                    .is_some_and(|lang| ["sh", "diff", "rust"].contains(lang));
+                if checked {
+                    blocks.push((english(&info), compared.then(|| english(&body))));
+                }
+            }
+            Some((info, mut body)) => {
+                body.push_str(line);
+                body.push('\n');
+                open = Some((info, body));
+            }
+        }
+    }
+    blocks
+}
+
+#[test]
+fn both_languages_run_the_same_checked_blocks() {
+    for chapter in CHAPTERS {
+        let english = checked_blocks("en", chapter);
+        let japanese = checked_blocks("ja", chapter);
         assert_eq!(
-            tutorial_includes(ja, chapter),
-            tutorial_includes(en, chapter),
-            "{chapter}: the Japanese page must include the same snippets in the same order"
+            japanese.iter().map(|b| &b.0).collect::<Vec<_>>(),
+            english.iter().map(|b| &b.0).collect::<Vec<_>>(),
+            "{chapter}: block kinds, names, exit statuses and paths"
+        );
+        assert_eq!(
+            japanese, english,
+            "{chapter}: commands, patches and Rust files"
         );
     }
 }
