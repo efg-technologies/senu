@@ -693,3 +693,20 @@ command, its exit status and the decisive lines.
   `filters::Safe` or `safe` filter. It is a guard and passed on its first
   run (`cargo test -q --test adapter_http never_disable_escaping`: 1 passed);
   no red run is claimed for it.
+
+### `senu site` router and wiring (ART-4, SITE-1 to SITE-3)
+
+- Red: with the page handler answering 404 for everything, `site_config`
+  ignoring credentials and startup skipping `Site::load`,
+  `cargo test -q --lib site_` exited 101 (`1 failed`),
+  `cargo test -q --test adapter_site` exited 101 (`1 passed; 4 failed`) and
+  `cargo test -q --test e2e_site` exited 101 (`0 passed; 2 failed`).
+- Green: `cargo test -q --lib` 127 passed; `--test adapter_site` 5 passed;
+  `--test e2e_site` 2 passed; the existing `--test adapter_http` (19) and
+  `--test e2e_serve` (3) still pass. `cargo clippy --locked --all-targets
+  -- -D warnings` exited 0 after one elided lifetime in the new test.
+- The E2E test starts the binary from a new empty directory with a cleared
+  environment, checks four pages, 404 plain text for `/projects`,
+  `/api/projects` and `/mcp`, 405 with `Allow: GET`, no `WWW-Authenticate`,
+  identical bodies with `Authorization`, and that no response contains the
+  repository path, the working directory or a sentinel.

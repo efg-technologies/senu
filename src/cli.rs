@@ -7,6 +7,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Serve,
+    Site,
     Mcp,
     Help,
 }
@@ -28,7 +29,7 @@ impl fmt::Display for CliError {
             Self::Usage => write!(
                 f,
                 "senu: unrecognized arguments\n\
-                 usage: senu serve | senu mcp --enable-mcp | senu --help"
+                 usage: senu serve | senu site | senu mcp --enable-mcp | senu --help"
             ),
             Self::McpNotEnabled => write!(
                 f,
@@ -40,15 +41,17 @@ impl fmt::Display for CliError {
 
 /// The text printed by `senu --help`.
 pub const HELP: &str = "\
-senu: experimental seed that serves one read-only project list as HTML, JSON and MCP
+senu: experimental seed that serves one read-only project list as HTML, JSON and MCP,
+and a small site of Markdown articles
 
 Usage:
   senu serve              serve HTML and JSON on a loopback address
+  senu site               serve the articles in content/ as HTML on a loopback address
   senu mcp --enable-mcp   serve MCP over stdio (off unless this flag is given)
   senu --help             show this help
 
 Environment:
-  SENU_BIND           serve: loopback address and port (default 127.0.0.1:3000)
+  SENU_BIND           serve, site: loopback address and port (default 127.0.0.1:3000)
   SENU_WEB_USER       serve: Basic user name for /projects
   SENU_WEB_PASSWORD   serve: Basic password for /projects
   SENU_API_TOKEN      serve: Bearer token for /api/projects
@@ -65,6 +68,7 @@ pub fn parse_args(args: &[OsString]) -> Result<Command, CliError> {
     }
     match words.as_slice() {
         ["serve"] => Ok(Command::Serve),
+        ["site"] => Ok(Command::Site),
         ["mcp", "--enable-mcp"] => Ok(Command::Mcp),
         ["mcp"] => Err(CliError::McpNotEnabled),
         ["--help"] => Ok(Command::Help),
@@ -82,8 +86,9 @@ mod tests {
     }
 
     #[test]
-    fn accepts_the_three_documented_forms() {
+    fn accepts_the_four_documented_forms() {
         assert_eq!(parse(&["serve"]), Ok(Command::Serve));
+        assert_eq!(parse(&["site"]), Ok(Command::Site));
         assert_eq!(parse(&["mcp", "--enable-mcp"]), Ok(Command::Mcp));
         assert_eq!(parse(&["--help"]), Ok(Command::Help));
     }
@@ -118,6 +123,9 @@ mod tests {
             &["SERVE"],
             &[""],
             &["serve", "serve"],
+            &["site", "extra"],
+            &["site", "--enable-mcp"],
+            &["SITE"],
             &["serve", "--help"],
             &["--help", "serve"],
             &["mcp", "--enable-mcp", "extra"],
@@ -149,6 +157,7 @@ mod tests {
     fn help_mentions_every_command_and_variable() {
         for needle in [
             "senu serve",
+            "senu site",
             "senu mcp --enable-mcp",
             "senu --help",
             "SENU_BIND",

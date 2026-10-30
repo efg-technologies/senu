@@ -5,6 +5,10 @@
 //! authentication for the matched route, and finally `list_projects`. The
 //! query string is parsed only after authentication succeeds, and it is
 //! never searched for credentials.
+//!
+//! `senu site` uses a separate router with the same size limits and
+//! response headers but no authentication: one handler looks the raw path
+//! up in the pre-rendered pages (spec 0003, §6).
 
 use std::sync::Arc;
 
@@ -20,6 +24,7 @@ use crate::auth::{Secret, basic_matches, bearer_matches};
 use crate::catalogue::Catalogue;
 use crate::config::ServeConfig;
 use crate::operation::{OpError, Principal, list_projects};
+use crate::site::Site;
 use crate::view;
 
 /// Longest accepted request target (path plus query), in bytes.
@@ -28,6 +33,7 @@ pub const MAX_TARGET_BYTES: usize = 2048;
 const BASIC_CHALLENGE: &str = "Basic realm=\"senu\", charset=\"UTF-8\"";
 const BEARER_CHALLENGE: &str = "Bearer realm=\"senu\"";
 const HTML_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+const SITE_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
 
 /// Everything the router needs. Principals are chosen by server code and
 /// bound to one credential each.
@@ -82,6 +88,18 @@ pub fn router(state: AppState) -> Router {
         .fallback(not_found)
         .with_state(Arc::new(state))
         .layer(middleware::from_fn(limits))
+        .layer(middleware::from_fn(response_headers))
+}
+
+/// Builds the `senu site` router: every path is looked up exactly, without
+/// percent-decoding or normalization, and the query string and
+/// `Authorization` are never read. `/projects`, `/api/*` and `/mcp` do not
+/// exist here.
+pub fn site_router(site: Site) -> Router {
+    Router::new()
+        .fallback(site_page)
+        .with_state(Arc::new(site))
+        .layer(middleware::from_fn(site_limits))
         .layer(middleware::from_fn(response_headers))
 }
 
@@ -242,24 +260,52 @@ async fn html_projects(State(app): State<Shared>, request: Request) -> Response 
     }
 }
 
+async fn site_page(State(site): State<Arc<Site>>, request: Request) -> Response {
+    let Some(page) = site.page(request.uri().path()) else {
+        return Surface::Html.error(HttpError::NotFound);
+    };
+    if request.method() != Method::GET {
+        return Surface::Html.error(HttpError::MethodNotAllowed);
+    }
+    (
+        [(header::CONTENT_SECURITY_POLICY, SITE_CSP)],
+        Html(page.to_owned()),
+    )
+        .into_response()
+}
+
 async fn not_found(uri: Uri) -> Response {
     Surface::for_path(uri.path()).error(HttpError::NotFound)
 }
 
 /// Rejects oversized targets and any request body before routing.
 async fn limits(request: Request, next: Next) -> Response {
-    let surface = Surface::for_path(request.uri().path());
+    match over_limits(&request) {
+        Some(err) => Surface::for_path(request.uri().path()).error(err),
+        None => next.run(request).await,
+    }
+}
+
+/// The same limits for `senu site`, whose errors are always plain text.
+async fn site_limits(request: Request, next: Next) -> Response {
+    match over_limits(&request) {
+        Some(err) => Surface::Html.error(err),
+        None => next.run(request).await,
+    }
+}
+
+fn over_limits(request: &Request) -> Option<HttpError> {
     let target = request
         .uri()
         .path_and_query()
         .map_or(0, |target| target.as_str().len());
     if target > MAX_TARGET_BYTES {
-        return surface.error(HttpError::UriTooLong);
+        Some(HttpError::UriTooLong)
+    } else if has_body(request.headers()) {
+        Some(HttpError::PayloadTooLarge)
+    } else {
+        None
     }
-    if has_body(request.headers()) {
-        return surface.error(HttpError::PayloadTooLarge);
-    }
-    next.run(request).await
 }
 
 async fn response_headers(request: Request, next: Next) -> Response {

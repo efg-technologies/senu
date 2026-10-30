@@ -28,6 +28,12 @@ pub struct ServeConfig {
     pub api_token: Secret,
 }
 
+/// Configuration for `senu site`, which uses no credentials.
+#[derive(Debug)]
+pub struct SiteConfig {
+    pub bind: SocketAddr,
+}
+
 /// Configuration for `senu mcp --enable-mcp`.
 #[derive(Debug)]
 pub struct McpConfig {
@@ -43,6 +49,8 @@ pub enum Problem {
     Unknown,
     Repeated,
     SameValueAs(&'static str),
+    /// A credential set for `senu site`, which serves public pages.
+    NotForSite,
 }
 
 /// A configuration failure. It names the variable and never holds its value.
@@ -76,6 +84,10 @@ impl fmt::Display for ConfigError {
             Problem::SameValueAs(other) => {
                 write!(f, "senu: {name} must not have the same value as {other}")
             }
+            Problem::NotForSite => write!(
+                f,
+                "senu: {name} is set, but `senu site` serves public pages and uses no credentials; unset it"
+            ),
         }
     }
 }
@@ -126,6 +138,29 @@ where
     let values = validate(vars)?;
     Ok(McpConfig {
         token: required(MCP_TOKEN, values.mcp_token)?,
+    })
+}
+
+/// Validates the environment for `senu site`: only `SENU_BIND` may be set,
+/// so nobody mistakes the public site for a protected one.
+pub fn site_config<I>(vars: I) -> Result<SiteConfig, ConfigError>
+where
+    I: IntoIterator<Item = (OsString, OsString)>,
+{
+    let [bind, user, password, api, mcp] = collect(vars)?;
+    let credentials = [
+        (WEB_USER, user),
+        (WEB_PASSWORD, password),
+        (API_TOKEN, api),
+        (MCP_TOKEN, mcp),
+    ];
+    for (name, value) in credentials {
+        if value.is_some() {
+            return Err(ConfigError::new(name, Problem::NotForSite));
+        }
+    }
+    Ok(SiteConfig {
+        bind: bind_address(bind)?,
     })
 }
 
@@ -458,6 +493,32 @@ mod tests {
         pairs.push((MCP_TOKEN, API));
         let err = serve_err(&pairs);
         assert_problem(&err, MCP_TOKEN, Problem::SameValueAs(API_TOKEN));
+    }
+
+    #[test]
+    fn site_needs_nothing_and_accepts_only_a_loopback_bind() {
+        let config = site_config(env(&[("PATH", "/bin")])).unwrap();
+        assert_eq!(config.bind, "127.0.0.1:3000".parse().unwrap());
+        let config = site_config(env(&[(BIND, "[::1]:0")])).unwrap();
+        assert_eq!(config.bind, "[::1]:0".parse().unwrap());
+        let err = site_config(env(&[(BIND, "0.0.0.0:3000")])).unwrap_err();
+        assert_problem(&err, BIND, Problem::Malformed);
+    }
+
+    #[test]
+    fn site_refuses_every_credential_without_printing_it() {
+        for name in [WEB_USER, WEB_PASSWORD, API_TOKEN, MCP_TOKEN] {
+            let err = site_config(env(&[(name, "zz-credential-value")])).unwrap_err();
+            assert_problem(&err, name, Problem::NotForSite);
+            let message = err.to_string();
+            assert!(
+                message.contains(name) && message.contains("senu site"),
+                "{message}"
+            );
+            assert!(!message.contains("zz-credential-value"), "{message}");
+        }
+        let err = site_config(env(&[("SENU_X", "1")])).unwrap_err();
+        assert_problem(&err, "SENU_X", Problem::Unknown);
     }
 
     #[test]

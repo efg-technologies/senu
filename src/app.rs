@@ -10,9 +10,10 @@ use std::process::ExitCode;
 
 use crate::catalogue::Catalogue;
 use crate::cli::{self, Command};
-use crate::config::{self, ServeConfig};
+use crate::config::{self, ServeConfig, SiteConfig};
 use crate::http::{self, AppState};
 use crate::mcp::McpServer;
+use crate::site::Site;
 
 const USAGE_OR_CONFIG: u8 = 2;
 const RUNTIME_FAILURE: u8 = 1;
@@ -34,6 +35,10 @@ where
         }
         Command::Serve => match config::serve_config(vars) {
             Ok(config) => serve(config),
+            Err(err) => fail(USAGE_OR_CONFIG, &err),
+        },
+        Command::Site => match config::site_config(vars) {
+            Ok(config) => site(&config, crate::content::EMBEDDED),
             Err(err) => fail(USAGE_OR_CONFIG, &err),
         },
         Command::Mcp => match config::mcp_config(vars) {
@@ -59,15 +64,30 @@ fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
 }
 
 fn serve(config: ServeConfig) -> ExitCode {
+    let app = http::router(AppState::new(Catalogue::demo(), &config));
+    listen(config.bind, app)
+}
+
+/// Runs `senu site` over `files`, the embedded articles in production. The
+/// articles are checked before anything is bound, so bad content exits with
+/// status 2 and the first error, in path order, on stderr.
+pub fn site(config: &SiteConfig, files: &[(&str, &str)]) -> ExitCode {
+    match Site::load(files) {
+        Ok(site) => listen(config.bind, http::site_router(site)),
+        Err(err) => fail(USAGE_OR_CONFIG, &err),
+    }
+}
+
+fn listen(bind: std::net::SocketAddr, app: axum::Router) -> ExitCode {
     let runtime = match runtime() {
         Ok(runtime) => runtime,
         Err(_) => return fail(RUNTIME_FAILURE, &"senu: could not start the runtime"),
     };
     runtime.block_on(async {
-        let listener = match tokio::net::TcpListener::bind(config.bind).await {
+        let listener = match tokio::net::TcpListener::bind(bind).await {
             Ok(listener) => listener,
             Err(err) => {
-                let message = format!("senu: cannot listen on {}: {}", config.bind, err.kind());
+                let message = format!("senu: cannot listen on {}: {}", bind, err.kind());
                 return fail(RUNTIME_FAILURE, &message);
             }
         };
@@ -75,7 +95,6 @@ fn serve(config: ServeConfig) -> ExitCode {
             Ok(addr) => addr,
             Err(_) => return fail(RUNTIME_FAILURE, &"senu: cannot read the listening address"),
         };
-        let app = http::router(AppState::new(Catalogue::demo(), &config));
         eprintln!("senu: listening on http://{addr}");
         match axum::serve(listener, app).await {
             Ok(()) => ExitCode::SUCCESS,
