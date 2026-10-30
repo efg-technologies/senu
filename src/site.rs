@@ -91,8 +91,11 @@ struct Entry<'a> {
 
 impl Site {
     /// Checks and renders `(path, text)` pairs such as
-    /// `("content/en/01-start.md", "# Start\n")`. The first error in byte
-    /// order of path is returned.
+    /// `("content/en/01-start.md", "# Start\n")`. Checks run in two phases,
+    /// each in byte order of path: names, sizes and unique numbers and
+    /// slugs, then titles, bodies and links. The first error of the first
+    /// failing phase is returned, so a later bad name wins over an earlier
+    /// missing title.
     pub fn load(files: &[(&str, &str)]) -> Result<Self, ContentError> {
         let mut files = files.to_vec();
         files.sort_unstable_by(|a, b| a.0.cmp(b.0));
