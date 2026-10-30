@@ -117,6 +117,6 @@ Each commit begins with its failing test, and the commit message notes that it w
 
 ## 7. Decisions and risks
 
-- **D1 (owner decision): license.** Use Apache-2.0 provisionally. The owner confirms the license before merge.
+- **D1: license.** Apache-2.0, selected on 2026-10-30. The full license is in `LICENSE`.
 - **R1:** Askama may reject `<%` because it is a prefix of `<%=`. If step 10 fails for that reason, record the error and the final syntax in `docs/research.md`. Then use `<%! %>` for blocks, keeping the expression syntax and escaping unchanged. If that also fails, stop and report.
 - **R2:** If the pinned `rmcp` API differs from what §3 assumes, keep the behaviour §3 specifies and record the difference.

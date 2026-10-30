@@ -1,5 +1,7 @@
 # Senu
 
+[English](README.md) | [日本語](README.ja.md)
+
 **ひとつの Rust 処理を、Web ページ・JSON API・MCP ツールとして提供します。**
 
 Senu は実験的な Rust のシード (たたき台) です。純粋関数 `list_projects` ひとつを、
@@ -148,5 +150,4 @@ scripts/quickstart.sh
 
 ## ライセンス
 
-Apache-2.0 は暫定のライセンスです (`LICENSE` を参照)。仕様の決定事項 D1 にあるとおり、
-マージ前にオーナーがライセンスを確定します。
+Senu は [Apache-2.0](LICENSE) で提供します。

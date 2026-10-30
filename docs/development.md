@@ -436,3 +436,11 @@ functions (at most six allowed). `docs_sync` and `quickstart_check` check
 documentation and a script and are not part of the pyramid. CI has not run
 these commits; publication is still waiting for the owner's license decision
 (D1).
+
+## Publication license
+
+On 2026-10-30 the project owner selected Apache-2.0 and authorized publication.
+The earlier entries record the provisional decision as it stood during
+implementation. Both READMEs and spec decision D1 now state the selected
+license. The `LICENSE` text is unchanged. The README language links point to
+the English and Japanese versions. No application or quickstart code changed.

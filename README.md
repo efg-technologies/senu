@@ -1,5 +1,7 @@
 # Senu
 
+[English](README.md) | [日本語](README.ja.md)
+
 **One Rust operation, served as a web page, a JSON API and an MCP tool.**
 
 Senu is an experimental Rust seed. A single pure function, `list_projects`,
@@ -153,5 +155,4 @@ on GitHub-hosted Ubuntu. Read
 
 ## License
 
-Apache-2.0 is the provisional license (see `LICENSE`). The owner confirms the
-license before merge, as spec decision D1 records.
+Senu is licensed under [Apache-2.0](LICENSE).
