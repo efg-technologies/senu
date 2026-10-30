@@ -444,3 +444,95 @@ The earlier entries record the provisional decision as it stood during
 implementation. Both READMEs and spec decision D1 now state the selected
 license. The `LICENSE` text is unchanged. The README language links point to
 the English and Japanese versions. No application or quickstart code changed.
+
+## Tutorial and documentation site (spec 0002)
+
+Files: `docs/specs/0002-tutorial.md`, the mdBook sources in `docs/tutorial`
+(English in `src/`, Japanese in `src/ja/`), shared command snippets and
+expected output in `docs/tutorial/commands` and `docs/tutorial/exercise`,
+`scripts/check_tutorial.py`, `scripts/build_site.sh`, `scripts/check_site.py`,
+`scripts/install_mdbook.sh`, `tests/site_scripts.rs`, a new test in
+`tests/docs_sync.rs`, two CI steps and a `site` CI job. No product source or
+product test changed, and the catalogue still names `acme-001` "Apollo
+Launch".
+
+Every expected output in the tutorial was copied from a real run of its
+command, and `check_tutorial.py` compares them on each run. Before writing the
+exercise, every literal "Apollo" in the repository was listed. Two are
+maintained contract fixtures in `tests/adapter_http.rs`: the expected JSON body
+at line 132 and the search `apollo+launch` at line 301 (lowercase; there is no
+mixed-case spelling). The exercise's third patch updates both. The fixtures in
+`src/view.rs` and `tests/quickstart_check.rs` build their own data and stay
+unchanged.
+
+### Exercise red and green
+
+`python3 scripts/check_tutorial.py exercise` ran every exercise step in a
+temporary git copy that reused a copy of `target/debug`, and exited 0. The
+red steps failed on test assertions; these are the matched lines it printed:
+
+```text
+ok: steps.sh:red (exit 101)
+    test catalogue::tests::demo_catalogue_matches_the_spec_table ... FAILED
+    assertion `left == right` failed
+      left: [("acme-001", "acme", "Apollo Launch"), ("acme-002", "acme", "Café Roadmap"), ...
+     right: [("acme-001", "acme", "Artemis Launch"), ("acme-002", "acme", "Café Roadmap"), ...
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.00s
+ok: steps.sh:suite-red (exit 101)
+    failures:
+        api_lists_projects_for_a_valid_bearer_token
+        query_strings_are_percent_and_plus_decoded
+    test result: FAILED. 17 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+    error: test failed, to rerun pass `--test adapter_http`
+```
+
+The green steps passed: the single catalogue test (1 passed), the whole suite
+after the fixture patch (every test binary `ok`, adapter_http 19 passed),
+`adapter_parity` (1 passed) and the real quickstart, whose JSON, HTML and MCP
+output all showed `acme-001` as "Artemis Launch" and `acme-003` unchanged. The
+restore step left the copy clean on `main`, and the checker confirmed that the
+real working tree had not changed.
+
+Checks that the checks can fail:
+
+- With the first patch temporarily edited to drop a comma, the red step
+  failed to compile (`error[E0618]`), and the checker exited 1 with
+  "expected line not found in order: test
+  catalogue::tests::demo_catalogue_matches_the_spec_table ... FAILED". The
+  patch was restored and `src/catalogue.rs` was unchanged.
+- With one Japanese include in `web.md` temporarily pointing at another
+  section, `tutorial_languages_share_chapters_and_snippets` failed with
+  "web.md: the Japanese page must include the same snippets in the same
+  order". The file was restored.
+- `tests/site_scripts.rs` was written together with the site scripts, so it
+  had no red run. It feeds `check_site.py` a passing fake site and 13 broken
+  copies, each of which must fail with its own reason, and checks that
+  `build_site.sh` refuses a foreign non-empty directory (whose file stays),
+  a file, two bad base paths and mdBook 0.5.3.
+- The first real site check failed on mdBook's own 404 page: its heading
+  link `#document-not-found-404` resolved against `<base href="/">` to
+  `index.html`. Links that are only a fragment are now checked against their
+  own page.
+
+### Final checks
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings |
+| `cargo test --locked -- --test-threads=2` | 0 | 124 passed: lib 83, adapter_http 19, adapter_mcp 9, adapter_parity 1, docs_sync 2, e2e_mcp 2, e2e_serve 3, quickstart_check 3, site_scripts 2 |
+| `scripts/quickstart.sh` | 0 | API JSON, two escaped HTML items, checked MCP reply; no `senu` process left |
+| `python3 scripts/check_tutorial.py commands` | 0 | 13 sections matched their expected output |
+| `python3 scripts/check_tutorial.py exercise` | 0 | 10 steps as above; working tree unchanged |
+| `scripts/install_mdbook.sh DIR` | 0 | official 0.5.4 tarball downloaded and its SHA-256 matched; a second run found the binary already installed |
+| `MDBOOK=... scripts/build_site.sh` | 0 | 18 pages, 6 chapters in each language; links, languages and source links ok |
+| `MDBOOK=... scripts/build_site.sh --base-path /senu/ DIR` | 0 | 404 pages use `<base href="/senu/">` and `/senu/ja/` |
+
+A headless Chromium that was already installed loaded all 12 chapter pages at
+390 and 1440 pixels wide: no page was wider than the viewport, no script
+error was reported, the architecture figure had one column at 390 pixels and
+three at 1440, and the text column was 630 pixels wide at 1440.
+
+Not checked: how well mdBook's built-in search finds Japanese words, systems
+other than Linux, and CI runs of these commits. The site has not been
+published, so it has no public URL yet.

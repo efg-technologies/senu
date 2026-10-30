@@ -85,6 +85,19 @@ acme-003 が返った場合にだけ成功します。そうでなければサ�
 HTML の出力では Askama のエスケープが働き、`<script>alert('x')</script> & "Launch" Notes`
 という名前のデモプロジェクトが文字列として表示されます。
 
+## チュートリアル
+
+[チュートリアル](docs/tutorial/src/ja/index.md) は短い 6 章からなり、英語版が
+[正本](docs/tutorial/src/index.md) です。quickstart を実行し、`list_projects` を読み、
+認可・入力検証・テナント分離を外から試し、エスケープされた HTML ページと JSON API を比べ、
+明示的に有効化する MCP ツールを起動して、最後にテストを先に書いてプロジェクト名を変える
+演習を行います。扱う範囲はこの README と同じ実験的なもので、機能は追加しません。
+コマンドと期待される出力は `docs/tutorial` の下のファイルで、`scripts/check_tutorial.py`
+がそれらを実行して確かめます。`scripts/build_site.sh` は各章を一つの静的な mdBook サイトに
+ビルドし、英語版をルートに、日本語版を `ja/` の下に置きます。サイトはまだ公開していません。
+チュートリアルとその確認方法は [仕様 0002](docs/specs/0002-tutorial.md) (英語) に
+まとめています。
+
 ## コマンド
 
 | コマンド | 動作 |
@@ -140,11 +153,20 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked -- --test-threads=2
 scripts/quickstart.sh
+python3 scripts/check_tutorial.py commands
+python3 scripts/check_tutorial.py exercise
+scripts/install_mdbook.sh
+MDBOOK=target/tools/mdbook-0.5.4/mdbook scripts/build_site.sh
 ```
 
 テストには、quickstart の MCP チェッカーを偽のサーバーに対して動かす
-`tests/quickstart_check.rs` が含まれ、`python3` が必要です。CI は GitHub が
-ホストする Ubuntu で同じコマンドを実行します。詳細は
+`tests/quickstart_check.rs` と、サイト用のスクリプトを偽のサイトに対して確かめる
+`tests/site_scripts.rs` が含まれ、どちらも `python3` が必要です。
+`check_tutorial.py exercise` はチュートリアルの演習を一時的なコピーで実行し、作業ツリーを
+変えません。`install_mdbook.sh` は固定版の mdBook 0.5.4 (x86_64 Linux 用) を
+`target/tools` にダウンロードしてダイジェストを確かめ、`build_site.sh` は確認済みの
+サイトを `target/site` に書き出します。CI は GitHub がホストする Ubuntu で同じコマンドを
+実行します。詳細は
 [仕様](docs/specs/0001-project-catalogue.md)、[開発ログ](docs/development.md)、
 [調査メモ](docs/research.md) を参照してください (いずれも英語)。
 

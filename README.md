@@ -87,6 +87,21 @@ acme-001 and acme-003. Any failed step makes the quickstart exit non-zero.
 The HTML output shows Askama's escaping: the demo project named
 `<script>alert('x')</script> & "Launch" Notes` is rendered as text.
 
+## Tutorial
+
+[The tutorial](docs/tutorial/src/index.md) has six short chapters in
+English, with a [Japanese translation](docs/tutorial/src/ja/index.md). It
+runs the quickstart, reads `list_projects`, tries authorization, validation
+and tenant isolation from outside, compares the escaped HTML page with the
+JSON API, starts the opt-in MCP tool, and ends with an exercise that renames
+a project test-first. It covers the same experimental scope as this README
+and adds no features. Its commands and expected output are files under
+`docs/tutorial` that `scripts/check_tutorial.py` runs, and
+`scripts/build_site.sh` builds the chapters into one static mdBook site,
+with English at the root and Japanese under `ja/`. The site is not published
+yet. [Spec 0002](docs/specs/0002-tutorial.md) describes the tutorial and its
+checks.
+
 ## Commands
 
 | Command | What it does |
@@ -144,11 +159,20 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked -- --test-threads=2
 scripts/quickstart.sh
+python3 scripts/check_tutorial.py commands
+python3 scripts/check_tutorial.py exercise
+scripts/install_mdbook.sh
+MDBOOK=target/tools/mdbook-0.5.4/mdbook scripts/build_site.sh
 ```
 
 The tests include `tests/quickstart_check.rs`, which runs the quickstart's MCP
-checker against fake servers and needs `python3`. CI runs the same commands
-on GitHub-hosted Ubuntu. Read
+checker against fake servers, and `tests/site_scripts.rs`, which checks the
+site scripts against fake sites; both need `python3`. `check_tutorial.py
+exercise` runs the tutorial's exercise in a temporary copy and leaves the
+working tree unchanged. `install_mdbook.sh` downloads the pinned mdBook 0.5.4
+for x86_64 Linux into `target/tools` and checks its digest, and
+`build_site.sh` writes the checked site to `target/site`. CI runs the same
+commands on GitHub-hosted Ubuntu. Read
 [the spec](docs/specs/0001-project-catalogue.md),
 [the development log](docs/development.md) and
 [the research notes](docs/research.md) for the details.
