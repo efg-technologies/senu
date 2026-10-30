@@ -168,8 +168,9 @@ MDBOOK=target/tools/mdbook-0.5.4/mdbook scripts/build_site.sh
 The tests include `tests/quickstart_check.rs`, which runs the quickstart's MCP
 checker against fake servers, and `tests/site_scripts.rs`, which checks the
 site scripts against fake sites; both need `python3`. `check_tutorial.py
-exercise` runs the tutorial's exercise in a temporary copy and leaves the
-working tree unchanged. `install_mdbook.sh` downloads the pinned mdBook 0.5.4
+exercise` runs the tutorial's exercise in a temporary copy of the last commit
+and leaves the working tree unchanged; commit your changes first, because it
+refuses to run while tracked files differ from HEAD. `install_mdbook.sh` downloads the pinned mdBook 0.5.4
 for x86_64 Linux into `target/tools` and checks its digest, and
 `build_site.sh` writes the checked site to `target/site`. CI runs the same
 commands on GitHub-hosted Ubuntu. Read

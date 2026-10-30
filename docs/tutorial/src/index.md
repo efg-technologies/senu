@@ -58,8 +58,8 @@ software. The catalogue is fixed and read-only: there is no database, no
 persistence and no way to change data. HTTP Basic here is a demo credential,
 not a production login, and there are no sessions, users or roles. The server
 has no TLS and listens only on a loopback address, so credentials travel in
-cleartext on your own machine. This tutorial site is served over HTTPS by a
-static host, but that does not add TLS to the demo you run locally. MCP runs
+cleartext on your own machine. A static host can serve these pages over
+HTTPS, but that would not add TLS to the demo you run locally. MCP runs
 only over local stdio; there is no remote MCP and no OAuth. There are no
 generators, scaffolding or ORM, and no published crate.
 

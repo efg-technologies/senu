@@ -1,5 +1,6 @@
 # ANCHOR: branch
-git switch -c artemis-exercise
+git status --short
+git diff --quiet HEAD && git switch -c artemis-exercise
 # ANCHOR_END: branch
 # ANCHOR: expect
 git apply docs/tutorial/exercise/1-expect-artemis.patch

@@ -9,8 +9,15 @@ tests that pin the old name until the whole suite and the quickstart pass.
 At the end you put the original catalogue back.
 
 Each change below is shown as a diff. Edit the file by hand, or apply the
-same diff with the `git apply` command under it. Do the exercise on its own
-branch:
+same diff with the `git apply` command under it.
+
+Do the exercise on its own branch, starting from a clean working tree: the
+last step restores two files, which would throw away any uncommitted edits to
+them. `git status --short` lists your changes, and `git diff --quiet HEAD`
+succeeds only when no tracked file differs from your last commit, so the
+branch is created only then. If a change is listed and no branch is created,
+commit or stash your work first, or stop here. Untracked files, marked `??`,
+are left alone by the exercise.
 
 ```sh
 {{#include ../exercise/steps.sh:branch}}
@@ -160,9 +167,11 @@ which no test reads.
 ## Check the tutorial yourself
 
 [`scripts/check_tutorial.py`](https://github.com/efg-technologies/senu/blob/main/scripts/check_tutorial.py)
-runs the same files this tutorial includes. `exercise` copies the repository
-into a temporary git repository, reuses a copy of your `target/debug` build
-cache, and runs every step above in order. It checks each exit status, checks
+runs the same files this tutorial includes. `exercise` copies your last
+commit, and nothing else, into a temporary git repository, so commit your
+changes first: it refuses to run while tracked files differ from that commit.
+It reuses a copy of your `target/debug` build cache and runs every step above
+in order. It checks each exit status, checks
 that the red steps fail on test assertions rather than on patch or compiler
 errors, and finally checks that your own working tree did not change.
 `commands` starts a server like chapter 3 and compares every other command in

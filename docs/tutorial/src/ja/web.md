@@ -43,10 +43,11 @@ Askama は `.html` テンプレートの `<%= %>` の式をすべて HTML エス
 {{#include ../../commands/web.out:echoed-search}}
 ```
 
-エスケープがうっかり無効になることはありません。
 [`tests/adapter_http.rs`](https://github.com/efg-technologies/senu/blob/main/tests/adapter_http.rs)
-のテストは、テンプレートや `askama.toml` が `safe` フィルターやエスケープの上書きを
-使うと失敗します。HTML の応答には、スクリプトを一切許さない制限の強い
+の回帰テストは、テンプレートが `safe` や `escape` フィルターを使ったり、`askama.toml` や
+`#[template]` 属性がエスケープの方式や `.html` という拡張子を変えたりすると失敗します。
+ソースの文字列からこうした書き方を探すテストなので、よくある誤りは見つけられますが、
+エスケープを無効にする手段が一切ないことを証明するものではありません。HTML の応答には、スクリプトを一切許さない制限の強い
 `Content-Security-Policy` も付きます。
 
 ## JSON API はデータを返す

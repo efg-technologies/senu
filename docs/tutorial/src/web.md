@@ -44,10 +44,12 @@ search box's `value` attribute, is escaped the same way:
 {{#include ../commands/web.out:echoed-search}}
 ```
 
-Escaping cannot be switched off by accident: a test in
+A regression test in
 [`tests/adapter_http.rs`](https://github.com/efg-technologies/senu/blob/main/tests/adapter_http.rs)
-fails if a template or `askama.toml` uses the `safe` filter or an escape
-override. The HTML response also sends a restrictive
+fails if a template uses the `safe` or `escape` filter, or if `askama.toml` or
+a `#[template]` attribute changes the escaper or the `.html` extension. It
+searches the source text for these spellings, so it catches the usual
+mistakes; it does not prove that escaping can never be switched off. The HTML response also sends a restrictive
 `Content-Security-Policy` that allows no scripts.
 
 ## The JSON API returns data

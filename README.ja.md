@@ -162,8 +162,9 @@ MDBOOK=target/tools/mdbook-0.5.4/mdbook scripts/build_site.sh
 テストには、quickstart の MCP チェッカーを偽のサーバーに対して動かす
 `tests/quickstart_check.rs` と、サイト用のスクリプトを偽のサイトに対して確かめる
 `tests/site_scripts.rs` が含まれ、どちらも `python3` が必要です。
-`check_tutorial.py exercise` はチュートリアルの演習を一時的なコピーで実行し、作業ツリーを
-変えません。`install_mdbook.sh` は固定版の mdBook 0.5.4 (x86_64 Linux 用) を
+`check_tutorial.py exercise` はチュートリアルの演習を最後のコミットの一時的なコピーで実行し、
+作業ツリーを変えません。追跡しているファイルが HEAD と違う間は実行を拒むので、先に変更を
+コミットしてください。`install_mdbook.sh` は固定版の mdBook 0.5.4 (x86_64 Linux 用) を
 `target/tools` にダウンロードしてダイジェストを確かめ、`build_site.sh` は確認済みの
 サイトを `target/site` に書き出します。CI は GitHub がホストする Ubuntu で同じコマンドを
 実行します。詳細は
