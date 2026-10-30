@@ -799,3 +799,103 @@ Not checked: the person-run part of UI-1 (accessibility tree, keyboard
 order, visible focus, 200 % zoom, both language links clicked by hand),
 physical phones and other browsers. A reviewer should do those before
 merge.
+
+## Spec 0003: independent review fixes
+
+An independent code review and a pedagogy review of the slice (English and
+Japanese, chapter by chapter) found the problems below. Each fix was
+written test first where it changes behaviour; Rust ran through the same
+bounded serial wrapper.
+
+### Symlinked `content` directory (CNT-1)
+
+- Red: a new test points `content` at another tree with real `en` and `ja`
+  articles. `cargo test --lib -- discover:: markdown::` exited 101 with
+  ``called `Result::unwrap_err()` on an `Ok` value: ["content/en/01-a.md",
+  "content/ja/01-a.md"]``.
+- Green: `discover` checks `content` with `symlink_metadata` before the
+  locale directories; the same command exited 0, `27 passed`, and the
+  message is `senu: content: must be a directory, not a symlink or a file`.
+
+### English word count across inline markup (§4)
+
+- Red: in the same run, 100 × `foo**bar**baz ` counted `left: 300 right:
+  100` (2 minutes instead of 1), and the boundary test counted 12 instead
+  of 4 for `*a*b [c](/)d e`f`g h<b>i</b>j`.
+- Green: the policy keeps whether the last counted text ended inside a
+  word across emphasis, links, inline code and raw HTML shown as text, and
+  ends the word at whitespace, line breaks and every other tag. 100 words
+  give 1 minute; separate paragraphs, headings, list items, quotes, table
+  cells, soft and hard breaks and code blocks still separate words, and
+  the Japanese character count is unchanged.
+
+### Check order of `Site::load` (§3, SITE-3)
+
+The code checks every name, size and unique number and slug before any
+title, body or link, and its test expects a later bad name to win over an
+earlier missing title. The spec said "the first error" without the
+phases; the spec, SITE-3 and the API documentation now state them. No
+code or test changed.
+
+### Unchecked command output (§8)
+
+- Red: three new printf-only tests in `scripts/test_check_tutorial.py`
+  (no Cargo): output without a `text` block before the next command or a
+  file block, and at the end of a language. Against the previous checker,
+  2 of them failed with `CheckFailed not raised`; complete pairs and
+  silent commands passed.
+- Green: the checker fails before the next command, file or patch, and at
+  the end, when the last command printed output that no `text` block
+  checked, naming the command's block. A command without a `text` block
+  must print nothing, as `mv` and `rm` do in chapter 05. 19 tests passed.
+
+### Site snapshot links (CI-1)
+
+- Red: a new `scripts/test_snapshot_site.py` saves fixed pages with a real
+  link, the escaped example `&lt;a href="/my-first-note"&gt;` of chapter
+  04, a comment and plain text. With `save()` first moved out of `main()`
+  unchanged, the test failed: the regular expression rewrote the escaped
+  example and turned `/my-first-note#more` into `my-first-note#more.html`.
+- Green: links are found with the standard library's `HTMLParser`; only
+  the `href` value inside each real start tag changes, located by the
+  parser's position and checked against the tag text; everything else is
+  copied byte for byte. 2 tests passed. `tests/tutorial_checker.rs` runs
+  them, so `cargo test` and CI do too.
+
+### Course and README prose (both languages)
+
+Paired changes in `content/en` and `content/ja`, with the same checked
+blocks: chapter 01 separates the commands to type from their output and
+introduces the home folder and `~`; chapter 02 clones from `~` and every
+later terminal or recovery uses `cd ~/senu`, which works from any folder;
+chapter 03 explains `cargo run --quiet --`, `curl -s`, `|` and `grep`
+before their first boxes and `NAME=value` before the alternate-port
+command; chapter 06 explains `#[cfg(test)]`, `mod tests`, `use super`,
+`crate` and `::` before the first Rust block; appendix 91 says that
+`check_mcp.py` sends `initialize` and `tools/call` (not `tools/list`) and
+that the token is a startup setting, not authentication of a remote
+party. Both READMEs start with a short course entry before the transport
+demo and say that the site is not published.
+
+The first checker run after these changes, with `--all-mismatches`,
+failed only on seven `test result` lines of chapter 06 and appendix 90:
+the three new library tests are filtered out too (`122` became `125` and
+`123` became `126`). The red steps still fail on their assertions, not on
+a compiler error. Both languages were updated from that actual output.
+
+### Checks after the review fixes
+
+Run on a3d73be, the last commit before this log entry, with
+`CARGO_TERM_COLOR=always`, through the bounded wrapper:
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
+| `cargo test --locked -- --test-threads=2` | 0 | unit 127 (was 124), adapter 34, E2E 7, docs sync 4, quickstart checker 3, tutorial checker 2 (was 1; it now also runs the snapshot tests) |
+| `scripts/quickstart.sh` | 0 | |
+| `python3 scripts/check_tutorial.py` | 0 | English then Japanese, 90 `ok:` block lines each; clone blocks listed as not run; tree unchanged |
+| `python3 scripts/snapshot_site.py /tmp/senu-fix-snap-1` | 0 | 22 pages; the escaped `&lt;a href="/my-first-note"` and `/ja/my-first-note` examples of chapter 04 are unchanged in the saved pages |
+
+Not run here: the browser and keyboard check of UI-1, and cloning from
+the public repository, which chapter 02 marks `sh manual`.
