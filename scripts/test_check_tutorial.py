@@ -22,6 +22,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+# No __pycache__ in the tree: the exercise check needs its copy to end clean.
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_tutorial  # noqa: E402
 
