@@ -642,3 +642,19 @@ Not checked: `cargo fmt` and `cargo clippy`, because no Rust file changed;
 the test count of `suite-green`, which the checker does not print (it
 requires every `test result:` line to be `ok`); the site build, because no
 tutorial source changed; and CI runs of these commits.
+
+## Spec 0003: embedded Markdown articles and the beginner course
+
+Local Rust builds ran one at a time through a resource-bounded serial
+wrapper (one CPU, 2 GiB); CI uses plain `cargo`. Each entry names the
+command, its exit status and the decisive lines.
+
+### Discovery and `build.rs` (CNT-1)
+
+- Red: with `discover` stubbed to return an empty list,
+  `cargo test --lib -q discover` exited 101: `6 failed; 3 passed`, for
+  example ``assertion `left == right` failed  left: []``.
+- Green: the same command exited 0: `9 passed`. The embedded table equals a
+  fresh listing of `content/`; symlinks, a directory named `x.md`, a
+  non-UTF-8 name, a 128 KiB + 1 file and invalid UTF-8 are refused, and
+  `.x.md.swp` and `x.md~` are ignored.
