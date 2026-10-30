@@ -343,3 +343,30 @@ Red assertions:
 
 The new parity case passed before the fix: the server already accepted the
 padded search, and only the declared schema disagreed.
+
+## Commit 11: fixed method-not-found reply (second independent review)
+
+The review's second finding: `McpServer` inherited rmcp's default
+`ServerHandler::on_custom_request`, which answers an unrouted method with
+`-32601` and the method name as the error message. After a proper handshake,
+a request whose method was a configured credential sentinel came back on
+stdout verbatim. The caller supplied that value, so this is not extraction of
+a server secret, but it broke the rule that replies do not repeat input or
+credentials.
+
+`McpServer` now overrides `on_custom_request` with a fixed `-32601` "method
+not found" and no `data`. rmcp still routes and answers every method it
+knows, and the handshake is unchanged. The spec gains one §3 sentence and an
+MCP-2 clause (same IDs); `docs/research.md` and both READMEs mention the
+reply.
+
+Test, written first: inside the existing stdio session of
+`tests/e2e_mcp.rs`, request id 8 uses `SENU_MCP_TOKEN`'s sentinel as the
+method and in its params. The reply must be `-32601` with the fixed message,
+no `result`, no `data`, and no sentinel. The session now expects 8 replies.
+The E2E test-function count stays at 5.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo test --locked --no-fail-fast --test e2e_mcp` (test only) | 101 | 1 passed, 1 failed: "the error repeats the method name or params" (the `-32601` code check before it passed) |
+| `cargo test --locked --no-fail-fast --test e2e_mcp --test adapter_mcp` (fix) | 0 | e2e_mcp 2, adapter_mcp 9 passed |

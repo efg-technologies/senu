@@ -102,7 +102,10 @@ roles cannot be configured.
 - `GET /api/projects?q=` (Bearer): JSON `{"projects": [{"id", "name"}]}`.
 - MCP tool `list_projects`: `readOnlyHint: true`, optional string `q`, no
   other fields. Results come back as `structuredContent` and as JSON text;
-  operation errors are `isError` results with `{"error": code}`.
+  operation errors are `isError` results with `{"error": code}`. An unknown
+  tool gets JSON-RPC error `-32602` and a method that rmcp does not recognise
+  gets `-32601`; both carry fixed messages that do not repeat the requested
+  name.
 
 `q` is trimmed, then matched case-insensitively against project names. After
 trimming it may hold up to 80 Unicode scalar values and no control characters. Unknown fields are rejected.

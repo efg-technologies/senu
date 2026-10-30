@@ -78,6 +78,11 @@ Toolchain: Rust 1.99.1 (`rust-toolchain.toml`), edition 2024.
   that writes its requests and closes stdin still gets every reply. EOF before
   `initialize` ends initialization with `ConnectionClosed`, which Senu treats
   as a clean exit 0.
+- `ServerHandler::on_custom_request` handles every request method rmcp does
+  not route. Its default answers `-32601` with the requested method name as
+  the error message, so a caller's input would come back on stdout. Senu
+  overrides it with the fixed message "method not found". Methods rmcp knows
+  keep rmcp's handling.
 - rmcp offers tool macros. Senu does not use them; the one tool is declared
   by hand in `src/mcp.rs`.
 - JSON Schema's `maxLength` counts the code points of the raw string, while

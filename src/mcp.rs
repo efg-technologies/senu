@@ -13,8 +13,9 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
+    CallToolRequestParams, CallToolResponse, CallToolResult, CustomRequest, CustomResult,
+    ErrorCode, Implementation, ListToolsResult, PaginatedRequestParams, ServerCapabilities,
+    ServerConfig, Tool, ToolAnnotations,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
@@ -129,5 +130,20 @@ impl ServerHandler for McpServer {
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
         tools().into_iter().find(|tool| tool.name == name)
+    }
+
+    /// Answers any method rmcp does not route. rmcp's default puts the
+    /// requested method name in the error message; this reply is fixed and
+    /// repeats neither the method nor its params.
+    async fn on_custom_request(
+        &self,
+        _request: CustomRequest,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<CustomResult, ErrorData> {
+        Err(ErrorData::new(
+            ErrorCode::METHOD_NOT_FOUND,
+            "method not found",
+            None,
+        ))
     }
 }

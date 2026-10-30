@@ -99,7 +99,9 @@ HTML の出力では Askama のエスケープが働き、`<script>alert('x')</s
 - `GET /api/projects?q=` (Bearer): JSON `{"projects": [{"id", "name"}]}`。
 - MCP ツール `list_projects`: `readOnlyHint: true`、任意の文字列 `q` のみを受け付けます。
   結果は `structuredContent` と JSON テキストの両方で返り、処理のエラーは
-  `{"error": code}` を持つ `isError` の結果になります。
+  `{"error": code}` を持つ `isError` の結果になります。未知のツールは JSON-RPC
+  エラー `-32602`、rmcp が認識しないメソッドは `-32601` になり、どちらも
+  要求された名前を繰り返さない固定のメッセージを返します。
 
 `q` は前後の空白を除いてから、プロジェクト名と大文字小文字を区別せずに照合します。
 空白を除いた後の長さは Unicode スカラー値で 80 個までで、制御文字は使えません。未知のフィールドは拒否されます。

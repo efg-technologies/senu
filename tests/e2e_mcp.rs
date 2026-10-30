@@ -131,10 +131,31 @@ fn stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof() {
     );
     assert_eq!(padded["result"], found["result"], "{padded}");
 
+    // A method rmcp does not route gets a fixed error. Neither the method
+    // name, here the configured token, nor the params may be repeated.
+    send(
+        &mut server,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": MCP_TOKEN,
+            "params": { "q": MCP_TOKEN }
+        }),
+    );
+    let unrouted = reply(&mut server, 8);
+    assert_eq!(unrouted["error"]["code"], -32601);
+    assert!(unrouted.get("result").is_none());
+    assert!(
+        !unrouted.to_string().contains(MCP_TOKEN),
+        "the error repeats the method name or params"
+    );
+    assert_eq!(unrouted["error"]["message"], "method not found");
+    assert!(unrouted["error"].get("data").is_none());
+
     server.close_stdin();
     let (status, stdout, stderr) = server.wait();
     assert_eq!(status.code(), Some(0), "{stderr:?}");
-    assert_eq!(stdout.len(), 7, "one reply per request: {stdout:?}");
+    assert_eq!(stdout.len(), 8, "one reply per request: {stdout:?}");
     for line in &stdout {
         let message: Value = serde_json::from_str(line).expect("only JSON-RPC on stdout");
         assert_eq!(message["jsonrpc"], "2.0", "{line}");
