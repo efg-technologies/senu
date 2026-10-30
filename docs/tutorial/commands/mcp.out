@@ -1,7 +1,0 @@
-# ANCHOR: off
-senu: MCP is off by default; start it with `senu mcp --enable-mcp`
-exit status 2
-# ANCHOR_END: off
-# ANCHOR: check
-{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"projects\":[{\"id\":\"acme-001\",\"name\":\"Apollo Launch\"},{\"id\":\"acme-003\",\"name\":\"<script>alert('x')</script> & \\\"Launch\\\" Notes\"}]}"}],"structuredContent":{"projects":[{"id":"acme-001","name":"Apollo Launch"},{"id":"acme-003","name":"<script>alert('x')</script> & \"Launch\" Notes"}]},"isError":false}}
-# ANCHOR_END: check

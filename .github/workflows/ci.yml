@@ -35,19 +35,39 @@ jobs:
         run: cargo test --locked -- --test-threads=2
       - name: Quickstart
         run: scripts/quickstart.sh
-      - name: Tutorial commands
-        run: python3 scripts/check_tutorial.py commands
-      - name: Tutorial exercise
-        run: python3 scripts/check_tutorial.py exercise
 
-  site:
+  tutorial:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install the pinned mdBook
-        run: scripts/install_mdbook.sh "$RUNNER_TEMP/mdbook"
-      - name: Build and check the tutorial site
-        run: MDBOOK="$RUNNER_TEMP/mdbook/mdbook" scripts/build_site.sh "$RUNNER_TEMP/site"
+      - name: Install the pinned toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
+      - name: Build the dependencies once for the tutorial copies
+        run: cargo build --locked --all-targets
+      - name: Tutorial, English then Japanese
+        run: python3 scripts/check_tutorial.py
+
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal
+      - name: Save the site as static pages
+        run: python3 scripts/snapshot_site.py "$RUNNER_TEMP/site"
+      - name: Upload the static pages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: senu-site
+          path: ${{ runner.temp }}/site
+          if-no-files-found: error
+          retention-days: 14

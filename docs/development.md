@@ -749,3 +749,22 @@ build outputs from the seeded cache.
 - NAV-1 sync test: changing one Japanese command made
   `cargo test -q --test docs_sync` exit 101 (`3 passed; 1 failed`, "commands,
   patches and Rust files"); restored, it passed `4 passed`.
+
+### Retiring mdBook, the static snapshot and CI (CI-1)
+
+- `docs/tutorial/`, `scripts/build_site.sh`, `scripts/install_mdbook.sh`,
+  `scripts/check_site.py`, `tests/site_scripts.rs` and the mdBook CI job are
+  deleted; the new course replaced every chapter, and the migrated rename
+  exercise now lives in `content/*/90-appendix-catalogue.md`. The
+  mdBook-specific refusals (foreign outputs, base paths, mdBook versions)
+  have no counterpart any more; the snapshot keeps the refusal of a
+  non-empty output directory and the link and fragment checks.
+- `python3 scripts/snapshot_site.py /tmp/senu-snap`, through the bounded
+  wrapper, exited 0: `ok: 22 pages saved`, with internal links rewritten to
+  relative files such as `../first-note.html` and `first-page.html`.
+- CI keeps `contents: read` and SHA-pinned actions. The `check` job runs
+  fmt, clippy, the tests and the quickstart; a `tutorial` job builds the
+  dependencies once and runs both languages; a `site` job saves the
+  snapshot and uploads it with `actions/upload-artifact` pinned to the
+  v7.0.2 commit. There is no deploy step. The new jobs have not run on CI
+  yet.

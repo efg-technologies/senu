@@ -1,9 +1,0 @@
-# ANCHOR: quickstart
-== JSON API (Bearer): http://127.0.0.1:PORT/api/projects?q=launch
-{"projects":[{"id":"acme-001","name":"Apollo Launch"},{"id":"acme-003","name":"<script>alert('x')</script> & \"Launch\" Notes"}]}
-== HTML page (Basic): http://127.0.0.1:PORT/projects?q=launch
-<li data-project-id="acme-001">Apollo Launch</li>
-<li data-project-id="acme-003">&#60;script&#62;alert(&#39;x&#39;)&#60;/script&#62; &#38; &#34;Launch&#34; Notes</li>
-== MCP over stdio: initialize, then tools/call list_projects {"q":"launch"}
-{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"projects\":[{\"id\":\"acme-001\",\"name\":\"Apollo Launch\"},{\"id\":\"acme-003\",\"name\":\"<script>alert('x')</script> & \\\"Launch\\\" Notes\"}]}"}],"structuredContent":{"projects":[{"id":"acme-001","name":"Apollo Launch"},{"id":"acme-003","name":"<script>alert('x')</script> & \"Launch\" Notes"}]},"isError":false}}
-# ANCHOR_END: quickstart
