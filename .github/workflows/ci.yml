@@ -40,3 +40,14 @@ jobs:
       - name: Tutorial exercise
         run: python3 scripts/check_tutorial.py exercise
 
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned mdBook
+        run: scripts/install_mdbook.sh "$RUNNER_TEMP/mdbook"
+      - name: Build and check the tutorial site
+        run: MDBOOK="$RUNNER_TEMP/mdbook/mdbook" scripts/build_site.sh "$RUNNER_TEMP/site"
