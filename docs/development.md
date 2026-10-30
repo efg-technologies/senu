@@ -262,3 +262,38 @@ Red: the test was written together with the MCP tests and run against the
 same stubs (see commit 7). It failed at the MCP call for the first query,
 after the API and HTML comparisons for that query had passed. It passed once
 the MCP handler was implemented; no parity-specific code was needed.
+
+## Commit 9: READMEs, research notes, quickstart, sync test and CI job (§6 step 17)
+
+Files: `README.md`, `README.ja.md`, `docs/research.md`,
+`scripts/quickstart.sh`, `tests/docs_sync.rs`, and a `Quickstart` step at
+the end of the CI job. Spec decision D1 is back to its original wording: the
+Apache-2.0 license is provisional until the owner confirms it before merge.
+
+The quickstart builds the binary, starts `senu serve` on `127.0.0.1:0`, reads
+the listening line, calls the JSON API with Bearer and the HTML page with
+Basic, then pipes `initialize`, `notifications/initialized` and one
+`tools/call` into `senu mcp --enable-mcp`. The server is killed and reaped on
+exit. Piping all requests and then closing stdin is reliable because rmcp
+drains in-flight responses after EOF (see `docs/research.md`); 20 repeated
+runs of that MCP pipeline against the built binary all returned both replies
+and exited 0.
+
+`tests/docs_sync.rs` (DOC-2) was written after the READMEs, so it had no red
+phase. As a check that it can fail, one line was appended to the script
+temporarily: the test failed with "README.md must embed
+scripts/quickstart.sh exactly once, byte for byte", and passed again once the
+script was restored.
+
+Final checks on this commit:
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings |
+| `cargo test --locked -- --test-threads=2` | 0 | 117 passed: lib 83, adapter_http 19, adapter_mcp 8, adapter_parity 1, docs_sync 1, e2e_mcp 2, e2e_serve 3 |
+| `scripts/quickstart.sh` | 0 | API JSON, two escaped HTML items, MCP `tools/call` reply; run on the final script and code, before the README wording edits |
+
+Test pyramid (spec §5): 83 unit tests, 28 adapter tests and 5 E2E test
+functions (at most six allowed). `docs_sync` checks documentation and is not
+part of the pyramid.
