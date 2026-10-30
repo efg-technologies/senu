@@ -36,7 +36,7 @@ Options: `Options::ENABLE_TABLES` only. The crate is the current pulldown-cmark 
 | image, a second H1 | error |
 | any other event or tag (footnotes, task-list markers, math, metadata, definition lists, strikethrough, super- and subscript, wikilinks, alert block quotes, unknown variants) | error |
 
-While rendering, the policy counts words for the reading time of §8: whitespace-separated runs of text outside code blocks for English, and non-whitespace characters divided by two, rounded down, for Japanese, which has no spaces between words. Inline code counts as one word. This is a rough estimate and the tutorial says so.
+While rendering, the policy counts words for the reading time of §8: whitespace-separated runs of visible text outside code blocks for English, where line breaks and block boundaries also end a run but emphasis, links, inline code and raw HTML shown as text do not, so `foo**bar**baz` is one word, and non-whitespace characters divided by two, rounded down, for Japanese, which has no spaces between words. Inline code counts as one word. This is a rough estimate and the tutorial says so.
 
 The output is `TrustedHtml`, a newtype with a private field that only this renderer constructs. It carries the only `askama::filters::HtmlSafe` impl in `src/`. That impl is the single trusted-HTML boundary; templates still contain no `safe` filter and no escape override.
 

@@ -45,7 +45,9 @@ impl askama::filters::HtmlSafe for TrustedHtml {}
 /// How words are counted for the reading time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Counting {
-    /// Runs of text separated by whitespace, for English.
+    /// Runs of visible text separated by whitespace, line breaks or block
+    /// boundaries, for English. Emphasis, links, inline code and raw HTML
+    /// shown as text do not split a run.
     Words,
     /// Non-whitespace characters divided by two, for Japanese, which has
     /// no spaces between words.
@@ -162,6 +164,8 @@ struct Policy<'r> {
     code_depth: usize,
     words: usize,
     characters: usize,
+    /// The last counted text ended inside an English word.
+    in_word: bool,
 }
 
 impl<'r> Policy<'r> {
@@ -172,11 +176,22 @@ impl<'r> Policy<'r> {
             code_depth: 0,
             words: 0,
             characters: 0,
+            in_word: false,
         }
     }
 
     /// The event to write, or why the article is refused.
     fn event<'a>(&mut self, event: Event<'a>) -> Result<Event<'a>, String> {
+        // Emphasis and links sit inside a word; every other tag and break
+        // ends it.
+        match &event {
+            Event::Start(Tag::Emphasis | Tag::Strong | Tag::Link { .. })
+            | Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Link) => {}
+            Event::Start(_) | Event::End(_) | Event::SoftBreak | Event::HardBreak | Event::Rule => {
+                self.in_word = false;
+            }
+            _ => {}
+        }
         Ok(match event {
             Event::Start(tag) => Event::Start(self.start(tag)?),
             Event::End(tag) => Event::End(self.end(tag)?),
@@ -185,7 +200,10 @@ impl<'r> Policy<'r> {
                 Event::Text(text)
             }
             Event::Code(code) => {
-                self.words += 1;
+                if self.counting == Counting::Characters || !self.in_word {
+                    self.words += 1;
+                }
+                self.in_word = true;
                 Event::Code(code)
             }
             // Raw HTML is shown as text, never passed through.
@@ -318,7 +336,16 @@ impl<'r> Policy<'r> {
             return;
         }
         match self.counting {
-            Counting::Words => self.words += text.split_whitespace().count(),
+            Counting::Words => {
+                for c in text.chars() {
+                    if c.is_whitespace() {
+                        self.in_word = false;
+                    } else if !self.in_word {
+                        self.words += 1;
+                        self.in_word = true;
+                    }
+                }
+            }
             Counting::Characters => {
                 self.characters += text.chars().filter(|c| !c.is_whitespace()).count();
             }
@@ -749,6 +776,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(article.words, 6);
+    }
+
+    #[test]
+    fn formatting_inside_a_word_does_not_split_it() {
+        let text = format!("# T\n\n{}\n", "foo**bar**baz ".repeat(100));
+        let words = rendered(&text).unwrap().words;
+        assert_eq!(words, 100);
+        assert_eq!(crate::reading::reading_minutes(words), 1);
+    }
+
+    #[test]
+    fn whitespace_breaks_and_blocks_separate_words_but_inline_markup_does_not() {
+        let words = |markdown: &str| rendered(&format!("# T\n\n{markdown}")).unwrap().words;
+        // Inline markup, links, inline code and raw HTML shown as text join.
+        assert_eq!(words("*a*b [c](/)d e`f`g h<b>i</b>j\n"), 4);
+        assert_eq!(words("[one two](/first-note), three\n"), 3);
+        // Whitespace, line breaks and block boundaries separate.
+        assert_eq!(words("a *b* [c](/) `d` <b>e</b>\n"), 5);
+        assert_eq!(words("a\nb  \nc\n"), 3);
+        assert_eq!(words("a\n\nb\n\n## c\n\n- d\n- e\n\n> f\n"), 6);
+        assert_eq!(words("| a | b |\n|---|---|\n| c | d |\n"), 4);
+        assert_eq!(words("a\n\n```\nnot counted\n```\nb\n"), 2);
     }
 
     #[test]
