@@ -536,3 +536,69 @@ three at 1440, and the text column was 630 pixels wide at 1440.
 Not checked: how well mdBook's built-in search finds Japanese words, systems
 other than Linux, and CI runs of these commits. The site has not been
 published, so it has no public URL yet.
+
+## Tutorial review fixes
+
+An independent review of the tutorial checker reproduced three faults with
+harmless fake commands: a timed-out command killed only its shell and left a
+background grandchild running; the exercise copy took untracked files and the
+target of a link that pointed out of the tree; and when the serve section's
+`cargo build` failed, the old binary still started and the check passed. It
+also asked for a clean-tree guard before the exercise and two more careful
+claims in both languages. No product source or product test changed, and the
+catalogue still names `acme-001` "Apollo Launch".
+
+Files: `scripts/check_tutorial.py`, the new `scripts/test_check_tutorial.py`
+(standard-library `unittest`) and `tests/tutorial_checker.rs`, which runs it
+under `cargo test`; the `branch` section of `docs/tutorial/exercise/steps.sh`;
+the exercise, web and introduction chapters in both languages; both READMEs
+and TUT-2 and TUT-3 of spec 0002. CI is unchanged.
+
+### Red and green
+
+The six regression tests were written first and run against the previous
+checker: `python3 scripts/test_check_tutorial.py` ran 6 tests with 6
+failures. A timeout and a finished command each left their `sleep`
+grandchild running; `start_server` returned success after a fake `cargo`
+exited 9, because the fake old `senu` printed its listening line; the copy
+listed and committed `untracked.txt` and `outside-link.txt`; a tracked edit
+and a committed link to `../outside.txt` were not refused.
+
+The fix runs every command in its own session and process group. Exits are
+detected with `waitid(..., WNOWAIT)`, so the shell stays unreaped while its
+group is sent SIGTERM and then SIGKILL; its id cannot be reused meanwhile, and
+no other process is signalled (a bystander `sleep` in the tests survives). The
+serve section runs with `bash -e`. The exercise copy is `git archive HEAD`
+unpacked with `tarfile`'s `data` filter, after `git status --porcelain
+--untracked-files=no` is empty. After the fix the same 6 tests passed in
+1.4 s.
+
+The first full exercise run after the fix failed in `suite-green`: inside the
+copy, the tests' `/proc` reader raised `ProcessLookupError` for a process that
+exited while it was read, and `start_server` left its log open on failure (a
+`ResourceWarning`). Both were fixed; afterwards 15 consecutive runs of the
+tests passed with no `ResourceWarning`. The tests also stop writing
+`__pycache__`, which would leave the exercise copy unclean.
+
+The exercise's `branch` section now runs `git status --short` and creates the
+branch only if `git diff --quiet HEAD` succeeds. In a temporary clone with an
+edit to `src/catalogue.rs` it printed ` M src/catalogue.rs`, exited 1,
+created no branch and kept the edit; with only an untracked file it created
+the branch and exited 0.
+
+### Final checks after the review fixes
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings |
+| `cargo test --locked -- --test-threads=2` | 0 | 125 passed, 0 failed: lib 83, adapter_http 19, adapter_mcp 9, adapter_parity 1, docs_sync 2, e2e_mcp 2, e2e_serve 3, quickstart_check 3, site_scripts 2, tutorial_checker 1 |
+| `scripts/quickstart.sh` | 0 | API JSON, escaped HTML and checked MCP reply, still "Apollo Launch" |
+| `python3 scripts/check_tutorial.py commands` | 0 | 13 sections matched their expected output |
+| `python3 scripts/check_tutorial.py exercise` | 0 | branch 0, expect 0, red 101, rename 0, green 0, suite-red 101, fixtures 0, suite-green 0, parity 0, restore 0; working tree, HEAD and status unchanged |
+| `MDBOOK=... scripts/build_site.sh` | 0 | 18 pages, 6 chapters in each language; links and languages ok |
+| `MDBOOK=... scripts/build_site.sh --base-path /senu/ DIR` | 0 | same result under `/senu/` |
+
+Not checked: systems other than Linux (the new tests read `/proc`), CI runs
+of these commits, and a browser view of the changed pages. The site has not
+been published, so it has no public URL.
