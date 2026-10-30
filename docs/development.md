@@ -768,3 +768,34 @@ build outputs from the seeded cache.
   snapshot and uploads it with `actions/upload-artifact` pinned to the
   v7.0.2 commit. There is no deploy step. The new jobs have not run on CI
   yet.
+
+### Full checks at the end of the slice
+
+Run on the commit that adds the documentation, through the bounded wrapper
+where Rust is compiled:
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
+| `cargo test --locked -- --test-threads=2` | 0 | unit 124 (was 83), adapter 34 (19 HTTP, 9 MCP, 1 parity, 5 site; was 29), E2E 7 (3 serve, 2 MCP, 2 site; was 5), docs sync 4, quickstart checker 3, tutorial checker 1 |
+| `scripts/quickstart.sh` | 0 | |
+| `python3 scripts/check_tutorial.py` | 0 | English then Japanese; 185 `ok:` lines; clone blocks listed as not run; tree unchanged |
+| `python3 scripts/snapshot_site.py /tmp/senu-snap-final` | 0 | 22 pages |
+
+### Browser check (UI-1, partial)
+
+Screenshots only, taken headless from the real binary on a loopback port,
+one browser at a time: Chromium 154.0.8037.97 at 1440×900, 1280×800,
+390×844, 375×812 and 320 px wide (English and Japanese chapter 06, and a
+tall 320 px capture of chapter 05), and Firefox 158.0 at 1440×900
+(Japanese) and 375 px (English). Both browsers show the 15rem chapter list
+with the current chapter marked beside a 45rem reading column on desktop,
+and a closed "Chapters" disclosure above the article on narrow screens. At
+320 px, code blocks scroll inside their box and the page does not scroll
+sideways in the capture; Japanese text wraps inside the column.
+
+Not checked: the person-run part of UI-1 (accessibility tree, keyboard
+order, visible focus, 200 % zoom, both language links clicked by hand),
+physical phones and other browsers. A reviewer should do those before
+merge.
