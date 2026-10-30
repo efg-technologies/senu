@@ -104,6 +104,15 @@ fn serve_answers_api_and_html_requests_over_a_real_listener() {
     assert_eq!(too_large.status, 413);
     assert_eq!(too_large.body, r#"{"error":"payload_too_large"}"#);
 
+    for zero in ["00", "000"] {
+        let request = format!(
+            "GET /api/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nAuthorization: {}\r\nContent-Length: {zero}\r\n\r\n",
+            bearer(API_TOKEN)
+        );
+        let reply = exchange(request);
+        assert_eq!(reply.status, 200, "Content-Length: {zero}: {}", reply.body);
+    }
+
     let long_target = format!("/projects?q={}", "a".repeat(2100));
     let too_long = exchange(get(&long_target, &[]));
     assert_eq!(too_long.status, 414);

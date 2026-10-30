@@ -21,7 +21,7 @@
 <main>
 <form method="get" action="/projects" role="search">
 <label for="q">Search projects by name</label>
-<input id="q" name="q" type="search" maxlength="80" value="<%= q %>">
+<input id="q" name="q" type="search" value="<%= q %>">
 <button type="submit">Search</button>
 </form>
 <%! if projects.is_empty() %>

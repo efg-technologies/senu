@@ -456,6 +456,19 @@ async fn html_escapes_catalogue_markup() {
 }
 
 #[tokio::test]
+async fn html_accepts_searches_a_browser_maxlength_would_block() {
+    // 80 emoji are 80 scalars (valid) but 160 UTF-16 code units, and the
+    // surrounding spaces are trimmed by the operation before counting.
+    let emoji = "\u{1F680}".repeat(80);
+    let encoded: String =
+        form_urlencoded::byte_serialize(format!("  {emoji}  ").as_bytes()).collect();
+    let reply = send(&app(), html_get(&format!("/projects?q={encoded}"))).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(search_value(&reply.body), emoji);
+    assert!(!reply.body.contains("maxlength"), "{}", reply.body);
+}
+
+#[tokio::test]
 async fn html_escapes_the_search_inside_the_value_attribute() {
     let reply = send(&app(), html_get("/projects?q=%3Cb%3E%22x%22")).await;
     assert_eq!(reply.status, StatusCode::OK);

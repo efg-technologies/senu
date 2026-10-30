@@ -136,6 +136,25 @@ mod tests {
         }
     }
 
+    /// The search input's opening tag.
+    fn search_input(page: &str) -> &str {
+        let start = page.find("<input id=\"q\"").expect("search input");
+        let end = start + page[start..].find('>').expect("end of input tag");
+        &page[start..=end]
+    }
+
+    #[test]
+    fn search_input_leaves_length_rules_to_the_server() {
+        // Browsers count `maxlength`/`minlength` in UTF-16 code units of the
+        // untrimmed value, but `list_projects` counts Unicode scalars after
+        // trimming, so any client-side rule would reject valid searches.
+        let page = projects_page("", &[]).unwrap();
+        let input = search_input(&page);
+        for attribute in ["maxlength", "minlength", "pattern", "required"] {
+            assert!(!input.contains(attribute), "{input}");
+        }
+    }
+
     #[test]
     fn empty_results_are_announced() {
         let page = projects_page("zephyr", &[]).unwrap();

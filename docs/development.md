@@ -172,3 +172,33 @@ previously a stub that printed "not implemented yet" and exited 2.
 | `cargo fmt --check` | 0 | clean (after `cargo fmt`) |
 | `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings, after replacing `[line.clone()]` with `std::slice::from_ref(&line)` (`clippy::cloned_ref_to_slice_refs`) |
 | `cargo test --locked -- --test-threads=2` | 0 | lib 81, adapter_http 18, e2e_serve 3 passed |
+
+## Commit 6: independent review fixes
+
+An independent read-only review of the code through commit 5 reported two P2
+findings. Both regression tests were added first and run red.
+
+1. `templates/projects.html` set `maxlength="80"` on the search input.
+   Browsers count that limit in UTF-16 code units of the untrimmed value
+   ([HTML maxlength](https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#attr-fe-maxlength),
+   [Infra string length](https://infra.spec.whatwg.org/#string-length)),
+   while `list_projects` counts Unicode scalars after trimming. The attribute
+   was removed; the server stays the only length check.
+2. `has_body` treated only the literal `Content-Length: 0` as empty, so an
+   authenticated `GET` with `00` or `000` returned 413. `Content-Length` is
+   `1*DIGIT` ([RFC 9110 §8.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.6)),
+   and hyper keeps the raw spelling. Any all-zero decimal value now means no
+   body; positive, empty and malformed values still return 413.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo test --locked --no-fail-fast -- --test-threads=2` (tests only) | 101 | lib 81 passed, 2 failed; adapter_http 18 passed, 1 failed; e2e_serve 2 passed, 1 failed |
+| same command (fix) | 0 | lib 83, adapter_http 19, e2e_serve 3 passed |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings |
+
+Red assertions:
+
+- `http::tests::body_detection_accepts_any_decimal_spelling_of_zero`: `["00"]` was treated as a body.
+- `view::tests::search_input_leaves_length_rules_to_the_server`: the input tag contained `maxlength`.
+- `html_accepts_searches_a_browser_maxlength_would_block`: 80 emoji with surrounding spaces returned 200 and echoed the trimmed value, but the page still carried `maxlength`.
+- `serve_answers_api_and_html_requests_over_a_real_listener`: `Content-Length: 00: {"error":"payload_too_large"}`, `left: 413`, `right: 200`.

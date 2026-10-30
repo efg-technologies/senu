@@ -278,7 +278,13 @@ fn has_body(headers: &HeaderMap) -> bool {
         || headers
             .get_all(header::CONTENT_LENGTH)
             .iter()
-            .any(|length| length.as_bytes() != b"0")
+            .any(|length| !is_decimal_zero(length.as_bytes()))
+}
+
+/// `Content-Length` is `1*DIGIT` (RFC 9110 §8.6), so `0`, `00` and `000` all
+/// mean an empty body. Positive and malformed values count as a body.
+fn is_decimal_zero(value: &[u8]) -> bool {
+    !value.is_empty() && value.iter().all(|&byte| byte == b'0')
 }
 
 /// The `Authorization` value when exactly one is present.
@@ -403,6 +409,33 @@ mod tests {
             HeaderValue::from_static("chunked"),
         );
         assert!(has_body(&chunked));
+    }
+
+    #[test]
+    fn body_detection_accepts_any_decimal_spelling_of_zero() {
+        let lengths = |values: &[&'static str]| {
+            let mut headers = HeaderMap::new();
+            for value in values {
+                headers.append(header::CONTENT_LENGTH, HeaderValue::from_static(value));
+            }
+            headers
+        };
+        for zero in [&["00"][..], &["000"], &["0", "00"]] {
+            assert!(!has_body(&lengths(zero)), "{zero:?}");
+        }
+        for other in [
+            &["01"][..],
+            &["10"],
+            &["0", "1"],
+            &[""],
+            &[" 0"],
+            &["+0"],
+            &["-0"],
+            &["0x0"],
+            &["0, 0"],
+        ] {
+            assert!(has_body(&lengths(other)), "{other:?}");
+        }
     }
 
     #[test]
