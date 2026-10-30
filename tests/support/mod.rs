@@ -106,3 +106,206 @@ pub fn search_value(page: &str) -> String {
     let end = start + page[start..].find('"').expect("closing quote");
     unescape_html(&page[start..end])
 }
+
+pub mod process {
+    //! Real-process helpers: a cleared environment, piped stdio, 10 s
+    //! timeouts, and children that are always killed and reaped.
+
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+    use std::sync::mpsc::{self, Receiver};
+    use std::thread::{self, JoinHandle};
+    use std::time::{Duration, Instant};
+
+    pub const TIMEOUT: Duration = Duration::from_secs(10);
+
+    /// The real `senu` binary with an empty environment.
+    pub fn senu(args: &[&str], vars: &[(&str, &str)]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_senu"));
+        command.args(args).env_clear();
+        for (name, value) in vars {
+            command.env(name, value);
+        }
+        command
+    }
+
+    /// A running child whose stdout and stderr are read line by line on
+    /// background threads. Dropping it kills and reaps the process.
+    pub struct Running {
+        child: Child,
+        pub stdin: Option<ChildStdin>,
+        stdout: Receiver<String>,
+        stderr: Receiver<String>,
+        readers: Vec<JoinHandle<()>>,
+        stdout_seen: Vec<String>,
+        stderr_seen: Vec<String>,
+    }
+
+    fn pump<R: Read + Send + 'static>(source: R) -> (Receiver<String>, JoinHandle<()>) {
+        let (sender, receiver) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            for line in BufReader::new(source).lines() {
+                let Ok(line) = line else { break };
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        (receiver, handle)
+    }
+
+    pub fn spawn(mut command: Command) -> Running {
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().expect("spawn senu");
+        let stdin = child.stdin.take();
+        let (stdout, out_reader) = pump(child.stdout.take().unwrap());
+        let (stderr, err_reader) = pump(child.stderr.take().unwrap());
+        Running {
+            child,
+            stdin,
+            stdout,
+            stderr,
+            readers: vec![out_reader, err_reader],
+            stdout_seen: Vec::new(),
+            stderr_seen: Vec::new(),
+        }
+    }
+
+    impl Running {
+        /// The next stdout line, or a panic after the timeout.
+        pub fn stdout_line(&mut self) -> String {
+            let line = self
+                .stdout
+                .recv_timeout(TIMEOUT)
+                .expect("a stdout line within the timeout");
+            self.stdout_seen.push(line.clone());
+            line
+        }
+
+        /// The next stderr line, or a panic after the timeout.
+        pub fn stderr_line(&mut self) -> String {
+            let line = self
+                .stderr
+                .recv_timeout(TIMEOUT)
+                .expect("a stderr line within the timeout");
+            self.stderr_seen.push(line.clone());
+            line
+        }
+
+        pub fn write_line(&mut self, line: &str) {
+            let stdin = self.stdin.as_mut().expect("stdin is open");
+            stdin.write_all(line.as_bytes()).unwrap();
+            stdin.write_all(b"\n").unwrap();
+            stdin.flush().unwrap();
+        }
+
+        pub fn close_stdin(&mut self) {
+            self.stdin.take();
+        }
+
+        /// Waits for exit within the timeout, then drains both streams.
+        pub fn wait(mut self) -> (ExitStatus, Vec<String>, Vec<String>) {
+            let deadline = Instant::now() + TIMEOUT;
+            let status = loop {
+                if let Some(status) = self.child.try_wait().unwrap() {
+                    break status;
+                }
+                assert!(Instant::now() < deadline, "senu did not exit in time");
+                thread::sleep(Duration::from_millis(20));
+            };
+            self.drain();
+            (
+                status,
+                std::mem::take(&mut self.stdout_seen),
+                std::mem::take(&mut self.stderr_seen),
+            )
+        }
+
+        /// Kills the process, then drains both streams.
+        pub fn stop(mut self) -> (Vec<String>, Vec<String>) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            self.drain();
+            (
+                std::mem::take(&mut self.stdout_seen),
+                std::mem::take(&mut self.stderr_seen),
+            )
+        }
+
+        fn drain(&mut self) {
+            self.stdin.take();
+            for reader in self.readers.drain(..) {
+                reader.join().unwrap();
+            }
+            self.stdout_seen.extend(self.stdout.try_iter());
+            self.stderr_seen.extend(self.stderr.try_iter());
+        }
+    }
+
+    impl Drop for Running {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// Runs a command that should exit on its own, with empty stdin.
+    pub fn run(command: Command) -> (ExitStatus, Vec<String>, Vec<String>) {
+        let mut running = spawn(command);
+        running.close_stdin();
+        running.wait()
+    }
+
+    /// A raw HTTP/1.1 exchange over a real socket.
+    pub struct HttpReply {
+        pub status: u16,
+        pub head: String,
+        pub body: String,
+    }
+
+    impl HttpReply {
+        pub fn header(&self, name: &str) -> Option<&str> {
+            self.head.lines().skip(1).find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                key.eq_ignore_ascii_case(name).then(|| value.trim())
+            })
+        }
+    }
+
+    pub fn http(addr: SocketAddr, request: &str) -> HttpReply {
+        let mut stream = TcpStream::connect_timeout(&addr, TIMEOUT).expect("connect");
+        stream.set_read_timeout(Some(TIMEOUT)).unwrap();
+        stream.set_write_timeout(Some(TIMEOUT)).unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).expect("read response");
+        let raw = String::from_utf8(raw).expect("UTF-8 response");
+        let (head, body) = raw.split_once("\r\n\r\n").expect("response head");
+        let status = head
+            .split_whitespace()
+            .nth(1)
+            .and_then(|code| code.parse().ok())
+            .expect("status code");
+        HttpReply {
+            status,
+            head: head.to_owned(),
+            body: body.to_owned(),
+        }
+    }
+
+    /// A GET request with `Connection: close` and optional extra headers.
+    pub fn get(target: &str, headers: &[String]) -> String {
+        let mut request =
+            format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n");
+        for header in headers {
+            request.push_str(header);
+            request.push_str("\r\n");
+        }
+        request.push_str("\r\n");
+        request
+    }
+}

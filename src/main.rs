@@ -1,6 +1,7 @@
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    eprintln!("senu: not implemented yet");
-    ExitCode::from(2)
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    senu::app::run(&args, std::env::vars_os())
 }

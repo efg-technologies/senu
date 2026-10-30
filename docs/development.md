@@ -145,3 +145,30 @@ Design notes:
   the routes and fallback, so they wrap every route and the 404 fallback.
 - The HTML response also sends a restrictive `Content-Security-Policy`
   (no scripts, inline styles only). This is extra hardening, not a spec item.
+
+## Commit 5: `serve` wiring and HTTP/startup E2E tests (§6 step 13)
+
+Code: `src/app.rs` runs the parsed command with an explicit argument list and
+environment, validates configuration before binding, and maps failures to
+exit status 2 (arguments or configuration) or 1 (runtime, such as an
+occupied port). `src/main.rs` only forwards `std::env` to it. MCP mode still
+exits 1 with "not available yet" in this commit.
+
+Tests: `tests/e2e_serve.rs` (three functions) with process helpers in
+`tests/support/mod.rs`. They spawn the built binary with a cleared
+environment and `127.0.0.1:0`, send raw HTTP/1.1 over `TcpStream`, and use
+10 s timeouts; every child is killed and reaped on drop. Covered: API and
+HTML success, 401 with the matching challenge, 413, 414, `GET /mcp` 404,
+stderr holding only the listening line, sentinel secrets absent from every
+response and stream (WEB-4), CFG-1/CFG-2/CFG-3 as one table-driven test, and
+an occupied port exiting 1.
+
+Evidence: no red run of these process tests was recorded before the wiring
+was written, so this entry has green evidence only. The binary was
+previously a stub that printed "not implemented yet" and exited 2.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | clean (after `cargo fmt`) |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | no warnings, after replacing `[line.clone()]` with `std::slice::from_ref(&line)` (`clippy::cloned_ref_to_slice_refs`) |
+| `cargo test --locked -- --test-threads=2` | 0 | lib 81, adapter_http 18, e2e_serve 3 passed |
