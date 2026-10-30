@@ -80,10 +80,12 @@ Toolchain: Rust 1.99.1 (`rust-toolchain.toml`), edition 2024.
   as a clean exit 0.
 - rmcp offers tool macros. Senu does not use them; the one tool is declared
   by hand in `src/mcp.rs`.
-- The tool schema's `maxLength: 80` counts code points of the untrimmed
-  string, while the operation trims first. A client that enforces the schema
-  may reject a padded search that the server would accept. The server's
-  validation is the authority.
+- JSON Schema's `maxLength` counts the code points of the raw string, while
+  the operation trims first. The schema's first `maxLength: 80` therefore
+  rejected padded searches that the server accepts, such as 80 spaces
+  followed by `launch` (86 code points, 6 after trimming). The tool schema now
+  declares no length keyword; the `q` description states the trimmed
+  80-scalar rule, and the operation enforces it.
 
 ### HTTP review fixes
 

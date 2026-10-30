@@ -90,6 +90,8 @@ fn stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof() {
     assert_eq!(tools.len(), 1, "{list}");
     assert_eq!(tools[0]["name"], "list_projects");
     assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
+    let q_schema = &tools[0]["inputSchema"]["properties"]["q"];
+    assert!(q_schema.get("maxLength").is_none(), "{list}");
 
     let found = call_tool(&mut server, 3, "list_projects", json!({ "q": "launch" }));
     assert_eq!(found["result"]["isError"], false, "{found}");
@@ -120,10 +122,19 @@ fn stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof() {
     assert_eq!(unknown["error"]["code"], -32602, "{unknown}");
     assert!(unknown.get("result").is_none(), "{unknown}");
 
+    // 86 scalars, 6 after trimming: accepted like `launch`.
+    let padded = call_tool(
+        &mut server,
+        7,
+        "list_projects",
+        json!({ "q": format!("{}launch", " ".repeat(80)) }),
+    );
+    assert_eq!(padded["result"], found["result"], "{padded}");
+
     server.close_stdin();
     let (status, stdout, stderr) = server.wait();
     assert_eq!(status.code(), Some(0), "{stderr:?}");
-    assert_eq!(stdout.len(), 6, "one reply per request: {stdout:?}");
+    assert_eq!(stdout.len(), 7, "one reply per request: {stdout:?}");
     for line in &stdout {
         let message: Value = serde_json::from_str(line).expect("only JSON-RPC on stdout");
         assert_eq!(message["jsonrpc"], "2.0", "{line}");

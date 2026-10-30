@@ -3,7 +3,7 @@
 use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorCode};
 use senu::catalogue::{Catalogue, TenantId};
 use senu::mcp::{McpServer, TOOL_NAME, tools};
-use senu::operation::Principal;
+use senu::operation::{MAX_SEARCH_CHARS, Principal};
 use serde_json::{Map, Value, json};
 
 fn server() -> McpServer {
@@ -60,8 +60,64 @@ fn exactly_one_explicit_read_only_tool_is_declared() {
     let properties = schema["properties"].as_object().expect("properties");
     assert_eq!(properties.keys().collect::<Vec<_>>(), ["q"]);
     assert_eq!(properties["q"]["type"], "string");
-    assert_eq!(properties["q"]["maxLength"], 80);
+    // JSON Schema's maxLength counts the raw string; the limit applies after
+    // trimming, so the description states it instead.
+    assert!(properties["q"].get("maxLength").is_none(), "{tool}");
+    let description = properties["q"]["description"]
+        .as_str()
+        .expect("description");
+    assert!(description.contains("trimmed"), "{description}");
+    assert!(
+        description.contains("80 Unicode scalar values"),
+        "{description}"
+    );
     assert!(tool["inputSchema"].get("required").is_none());
+}
+
+/// Whether the declared schema for `q` admits `q`. Only the keywords the
+/// declaration may use are understood, so any other keyword fails the test
+/// instead of being skipped.
+fn q_schema_admits(tool: &Value, q: &str) -> bool {
+    let schema = tool["inputSchema"]["properties"]["q"]
+        .as_object()
+        .expect("q schema");
+    // JSON Schema counts the characters (code points) of the raw string.
+    let length = q.chars().count() as u64;
+    schema.iter().all(|(keyword, rule)| match keyword.as_str() {
+        "type" => rule == "string",
+        "description" => true,
+        "maxLength" => length <= rule.as_u64().expect("maxLength"),
+        "minLength" => length >= rule.as_u64().expect("minLength"),
+        other => panic!("unexpected keyword {other} in the q schema"),
+    })
+}
+
+#[test]
+fn schema_admits_padded_searches_that_the_operation_accepts() {
+    let tool = serde_json::to_value(&tools()[0]).unwrap();
+    let server = server();
+    let wide = "é".repeat(MAX_SEARCH_CHARS);
+    let cases: [(String, &str, &[&str]); 2] = [
+        (
+            format!("{}launch", " ".repeat(80)),
+            "launch",
+            &["acme-001", "acme-003"],
+        ),
+        (format!(" {wide}\n"), &wide, &[]),
+    ];
+    for (q, trimmed, expected_ids) in cases {
+        assert!(q.chars().count() > MAX_SEARCH_CHARS, "{q:?} is not padded");
+        assert!(
+            q_schema_admits(&tool, &q),
+            "the schema rejects {q:?}, which the operation accepts"
+        );
+        let padded = call(&server, json!({ "q": q }));
+        assert_eq!(padded.is_error, Some(false), "{q:?}");
+        let structured = padded.structured_content.expect("structuredContent");
+        assert_eq!(ids(&structured), expected_ids, "{q:?}");
+        let plain = call(&server, json!({ "q": trimmed }));
+        assert_eq!(plain.structured_content, Some(structured), "{q:?}");
+    }
 }
 
 #[test]

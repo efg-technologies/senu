@@ -207,7 +207,7 @@ Red assertions:
 
 Code: `src/mcp.rs` declares one tool, `list_projects`, by hand: a
 `rmcp::model::Tool` with `readOnlyHint: true` and an object input schema
-(optional string `q`, `maxLength` 80, `additionalProperties: false`). A
+(optional string `q`, `maxLength` 80 until commit 10, `additionalProperties: false`). A
 hand-written `ServerHandler` answers `initialize` (tools capability only),
 `tools/list` and `tools/call`; no tool macros or reflection are used. Calls go
 through the same pure `list_projects` with the server-bound `demo-mcp`
@@ -245,9 +245,9 @@ Differences from the spec's assumptions (risk R2):
   that answer.
 - `tools/call` returns `CallToolResponse` (complete, input-required or task);
   Senu always returns the complete variant.
-- The schema's `maxLength` counts code points of the untrimmed string, while
-  the operation trims first. A client that enforces the schema may reject a
-  padded search the server would accept; the server stays the authority.
+- The schema's `maxLength` counted code points of the untrimmed string, while
+  the operation trims first, so the schema rejected padded searches the
+  server accepts. Commit 10 removed it (see below).
 
 ## Commit 8: three-transport parity (§6 step 16)
 
@@ -297,3 +297,49 @@ Final checks on this commit:
 Test pyramid (spec §5): 83 unit tests, 28 adapter tests and 5 E2E test
 functions (at most six allowed). `docs_sync` checks documentation and is not
 part of the pyramid.
+
+## Commit 10: MCP schema length rule (second independent review)
+
+A second independent review of the completed slice reported three P2
+findings. This commit fixes the first: the `q` property declared
+`maxLength: 80`, which JSON Schema applies to the raw string, while
+`list_projects` trims first. The real binary accepted 80 spaces followed by
+`launch` (86 code points, 6 after trimming) and returned acme-001 and
+acme-003, yet the declared schema rejected that input.
+
+The schema now has no length keyword. The `q` description states the rule
+(trimmed first, then at most 80 Unicode scalar values and no control
+characters), and the operation remains the only check. The spec's §3 schema
+wording and `docs/research.md` were updated; acceptance IDs are unchanged.
+
+Tests, written first:
+
+- `tests/adapter_mcp.rs`: the declaration test now requires no `maxLength`
+  and a description that states the trimmed 80-scalar rule. The new
+  `schema_admits_padded_searches_that_the_operation_accepts` checks the
+  declared `q` schema with a small evaluator that fails on any keyword it does
+  not understand, for 80 spaces plus `launch` and for 80 `é` padded with a
+  space and a newline, then checks that each padded call returns the same
+  result as the trimmed search.
+- `tests/adapter_parity.rs`: X-1 gains the padded `launch` search, so the
+  API, the HTML page and MCP are compared on it too.
+- `tests/e2e_mcp.rs`: inside the existing stdio session, `tools/list` must
+  declare no `maxLength`, and a padded `launch` call (id 7) must return the
+  same result as `launch`.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo test --locked --no-fail-fast --test adapter_mcp --test adapter_parity --test e2e_mcp` (tests only) | 101 | adapter_mcp 7 passed, 2 failed; adapter_parity 1 passed; e2e_mcp 1 passed, 1 failed |
+| same command (fix) | 0 | adapter_mcp 9, adapter_parity 1, e2e_mcp 2 passed |
+
+Red assertions:
+
+- `schema_admits_padded_searches_that_the_operation_accepts`: "the schema
+  rejects" the 80-space `launch` search, "which the operation accepts".
+- `exactly_one_explicit_read_only_tool_is_declared`: the `q` schema still had
+  `maxLength`.
+- `stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof`: the
+  `tools/list` reply still declared `maxLength`.
+
+The new parity case passed before the fix: the server already accepted the
+padded search, and only the declared schema disagreed.

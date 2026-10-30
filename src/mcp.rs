@@ -78,6 +78,9 @@ pub fn tools() -> Vec<Tool> {
     vec![list_projects_tool()]
 }
 
+/// The schema declares no `maxLength`: JSON Schema counts the raw string,
+/// while the operation trims first, so a schema limit would reject padded
+/// searches the server accepts. The description states the real rule.
 fn list_projects_tool() -> Tool {
     let mut schema = Map::new();
     schema.insert("type".to_owned(), json!("object"));
@@ -86,8 +89,11 @@ fn list_projects_tool() -> Tool {
         json!({
             "q": {
                 "type": "string",
-                "maxLength": MAX_SEARCH_CHARS,
-                "description": "Case-insensitive name search. Surrounding whitespace is trimmed; empty means no search."
+                "description": format!(
+                    "Case-insensitive name search. Surrounding whitespace is trimmed first; \
+                     the trimmed value may hold at most {MAX_SEARCH_CHARS} Unicode scalar values \
+                     and no control characters. Empty means no search."
+                )
             }
         }),
     );

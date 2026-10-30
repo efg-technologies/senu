@@ -1,5 +1,5 @@
 //! X-1: the JSON API, the MCP tool and the HTML page return exactly what
-//! `list_projects` returns, for the spec's queries.
+//! `list_projects` returns, for the spec's queries and a padded search.
 
 mod support;
 
@@ -52,11 +52,14 @@ async fn api_mcp_and_html_match_the_operation_for_the_spec_queries() {
     let app = router(AppState::new(Catalogue::demo(), &config));
     let mcp = McpServer::new(Catalogue::demo());
 
-    let cases: [(Option<&str>, &[&str]); 4] = [
+    // The padded search is 86 scalars long but 6 after trimming.
+    let padded = format!("{}launch", " ".repeat(80));
+    let cases: [(Option<&str>, &[&str]); 5] = [
         (None, &["acme-001", "acme-002", "acme-003"]),
         (Some("launch"), &["acme-001", "acme-003"]),
         (Some(" CAFÉ "), &["acme-002"]),
         (Some("zephyr"), &[]),
+        (Some(&padded), &["acme-001", "acme-003"]),
     ];
     for (q, expected_ids) in cases {
         let mut args = Map::new();
