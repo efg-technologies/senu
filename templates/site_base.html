@@ -1,0 +1,108 @@
+<%# Shared frame of the article pages. Askama HTML-encodes every expression in this file. %>
+<!DOCTYPE html>
+<html lang="<%= frame.labels.lang %>">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= frame.title %> · <%= frame.labels.site %></title>
+<style>
+  :root {
+    --paper: #ffffff; --page: #f7f9fb; --inset: #eef4fb; --ink: #19344b; --muted: #4a6378;
+    --link: #1c62b0; --border: #cedce8; --code: #142a40; --focus: #1c62b0;
+    --sans: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 1.0625rem/1.7 var(--sans); }
+  :lang(ja) body, body:lang(ja) { line-height: 1.85; line-break: strict; }
+  a { color: var(--link); text-underline-offset: 0.15em; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+  .skip { position: absolute; left: 0.5rem; top: -4rem; background: var(--paper); padding: 0.5rem 0.75rem; border: 2px solid var(--focus); z-index: 1; }
+  .skip:focus { top: 0.5rem; }
+  .top { background: var(--paper); border-bottom: 1px solid var(--border); }
+  .top-inner { max-width: 66rem; margin: 0 auto; padding: 0.75rem 1.25rem; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: baseline; justify-content: space-between; }
+  .home { font-weight: 700; color: var(--ink); text-decoration: none; }
+  .home:hover { text-decoration: underline; }
+  .frame { max-width: 66rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .toc summary { cursor: pointer; font-weight: 600; padding: 0.5rem 0.75rem; background: var(--paper); border: 1px solid var(--border); border-radius: 6px; }
+  .toc ol { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+  .toc a { display: block; padding: 0.35rem 0.75rem; border-left: 3px solid transparent; color: var(--ink); text-decoration: none; line-height: 1.45; }
+  .toc a:hover { color: var(--link); text-decoration: underline; }
+  .toc a[aria-current="page"] { border-left-color: var(--link); background: var(--inset); font-weight: 600; }
+  main { min-width: 0; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem 1.25rem 2rem; }
+  h1 { font-size: 1.9rem; line-height: 1.3; margin: 0 0 0.5rem; }
+  h2 { font-size: 1.4rem; line-height: 1.35; margin: 2.25rem 0 0.75rem; }
+  h3, h4, h5, h6 { font-size: 1.1rem; margin: 1.75rem 0 0.5rem; }
+  .meta { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+  .article p, .article li, .article td, .article th { overflow-wrap: anywhere; }
+  .article li + li { margin-top: 0.25rem; }
+  .article blockquote { margin: 1.25rem 0; padding: 0.25rem 1rem; border-left: 4px solid var(--border); background: var(--page); }
+  code { font-family: var(--mono); font-size: 0.9em; color: var(--code); background: var(--inset); padding: 0.1em 0.3em; border-radius: 4px; }
+  pre { background: var(--inset); border: 1px solid var(--border); border-radius: 6px; padding: 0.85rem 1rem; overflow-x: auto; line-height: 1.5; }
+  pre code { background: none; padding: 0; font-size: 0.875rem; white-space: pre; }
+  table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1.25rem 0; }
+  th, td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
+  th { background: var(--inset); }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .contents { padding-left: 1.5rem; }
+  .pager { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+  .pager a { display: inline-block; max-width: 100%; }
+  .pager .next { margin-left: auto; text-align: right; }
+  footer { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 2rem; color: var(--muted); font-size: 0.875rem; }
+  @media (min-width: 52rem) {
+    .frame { grid-template-columns: 15rem minmax(0, 45rem); gap: 3rem; padding-top: 2rem; }
+    .toc-wrap { position: sticky; top: 1rem; align-self: start; max-height: calc(100vh - 2rem); overflow-y: auto; }
+    main { padding: 2.25rem 2.5rem 2.5rem; }
+    h1 { font-size: 2.1rem; }
+  }
+  @supports selector(::details-content) {
+    @media (min-width: 52rem) {
+      .toc > summary { display: none; }
+      .toc::details-content { content-visibility: visible; }
+      .toc ol { margin-top: 0; }
+    }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main"><%= frame.labels.skip %></a>
+<header class="top">
+<div class="top-inner">
+<a class="home" href="<%= frame.labels.home %>"><%= frame.labels.site %></a>
+<a class="lang" href="<%= frame.alternate %>" hreflang="<%= frame.labels.other_lang %>" lang="<%= frame.labels.other_lang %>"><%= frame.labels.other_language %></a>
+</div>
+</header>
+<div class="frame">
+<nav class="toc-wrap" aria-label="<%= frame.labels.chapters %>">
+<details class="toc">
+<summary><%= frame.labels.chapters %></summary>
+<ol>
+<%! for link in frame.nav %>
+<%! if link.current %>
+<li><a href="<%= link.href %>" aria-current="page"><%= link.title %></a></li>
+<%! else %>
+<li><a href="<%= link.href %>"><%= link.title %></a></li>
+<%! endif %>
+<%! endfor %>
+</ol>
+</details>
+</nav>
+<main id="main">
+<%! block main %><%! endblock %>
+<nav class="pager" aria-label="<%= frame.labels.pager %>">
+<%! if let Some(link) = frame.previous %>
+<a class="previous" href="<%= link.href %>" rel="prev"><%= frame.labels.previous %>: <%= link.title %></a>
+<%! endif %>
+<%! if let Some(link) = frame.next %>
+<a class="next" href="<%= link.href %>" rel="next"><%= frame.labels.next %>: <%= link.title %></a>
+<%! endif %>
+</nav>
+</main>
+</div>
+<footer>
+<p><%= frame.labels.footer %></p>
+</footer>
+</body>
+</html>

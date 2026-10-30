@@ -15,4 +15,5 @@ pub mod markdown;
 pub mod mcp;
 pub mod operation;
 pub mod reading;
+pub mod site;
 pub mod view;

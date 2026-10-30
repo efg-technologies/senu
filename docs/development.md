@@ -679,3 +679,17 @@ command, its exit status and the decisive lines.
   strikethrough, alert and definition syntax stays literal text with only
   allow-listed tags, events outside the list fail closed, and the 34 refused
   destinations report line 4 and the debug-quoted destination.
+
+### Names, titles, navigation and page views (ART-1 to ART-3, SAFE-4)
+
+- Red: with `Site::load` stubbed to return no pages,
+  `cargo test --lib -q site::` exited 101: `1 passed; 12 failed`.
+- Green after two test corrections (the label test had the two languages'
+  link names swapped, and Askama writes `&#60;`, not `&lt;`): the same
+  command exited 0 with `13 passed`.
+- `templates_and_configuration_never_disable_escaping` keeps its template
+  and `askama.toml` checks and now also requires exactly one `HtmlSafe` impl
+  in `src/`, on `TrustedHtml` with a private field, and no `MaybeSafe`,
+  `filters::Safe` or `safe` filter. It is a guard and passed on its first
+  run (`cargo test -q --test adapter_http never_disable_escaping`: 1 passed);
+  no red run is claimed for it.

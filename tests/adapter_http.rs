@@ -517,6 +517,34 @@ fn templates_and_configuration_never_disable_escaping() {
             );
         }
     }
+
+    // Spec 0003, SAFE-4: the only unescaped insertion is `TrustedHtml`, the
+    // Markdown policy's output. Exactly one `HtmlSafe` impl exists in src/,
+    // on that type, and its field is private; nothing else opts out.
+    let mut boundary = Vec::new();
+    for entry in std::fs::read_dir(format!("{root}/src")).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let text = std::fs::read_to_string(&path).unwrap();
+        for line in text.lines().map(str::trim) {
+            for forbidden in ["MaybeSafe", "filters::Safe", "|safe", "| safe"] {
+                assert!(!line.contains(forbidden), "{name}: {line}");
+            }
+            if line.contains("HtmlSafe") && !line.starts_with("//") {
+                boundary.push(format!("{name}: {line}"));
+            }
+        }
+    }
+    assert_eq!(
+        boundary,
+        ["markdown.rs: impl askama::filters::HtmlSafe for TrustedHtml {}"]
+    );
+    let markdown = std::fs::read_to_string(format!("{root}/src/markdown.rs")).unwrap();
+    assert_eq!(
+        markdown.matches("pub struct TrustedHtml(String);").count(),
+        1
+    );
+    assert!(!markdown.contains("TrustedHtml(pub"));
 }
 
 #[tokio::test]

@@ -1,0 +1,11 @@
+<%# One article. Askama HTML-encodes every expression in this file except `body`, which is TrustedHtml from the Markdown policy. %>
+<%! extends "site_base.html" %>
+<%! block main %>
+<h1><%= frame.title %></h1>
+<%! if !reading.is_empty() %>
+<p class="meta"><%= reading %></p>
+<%! endif %>
+<div class="article">
+<%= body %>
+</div>
+<%! endblock %>

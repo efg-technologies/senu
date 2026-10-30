@@ -1,0 +1,11 @@
+<%# The index of one language. Askama HTML-encodes every expression in this file. %>
+<%! extends "site_base.html" %>
+<%! block main %>
+<h1><%= frame.title %></h1>
+<p><%= frame.labels.intro %></p>
+<ol class="contents">
+<%! for link in frame.nav %>
+<li><a href="<%= link.href %>"><%= link.title %></a></li>
+<%! endfor %>
+</ol>
+<%! endblock %>

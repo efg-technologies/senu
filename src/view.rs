@@ -1,7 +1,9 @@
-//! HTML rendering with Askama.
+//! HTML rendering with Askama. Every template value is escaped, except the
+//! article body, which is `TrustedHtml` from the Markdown policy.
 
 use askama::Template;
 
+use crate::markdown::TrustedHtml;
 use crate::operation::ProjectSummary;
 
 #[derive(Template)]
@@ -14,6 +16,131 @@ struct ProjectsPage<'a> {
 /// Renders the project list page.
 pub fn projects_page(q: &str, projects: &[ProjectSummary]) -> Result<String, askama::Error> {
     ProjectsPage { q, projects }.render()
+}
+
+/// The fixed labels of the article pages in one language.
+#[derive(Debug)]
+pub struct Labels {
+    pub lang: &'static str,
+    pub other_lang: &'static str,
+    /// The name of the other language, in that language.
+    pub other_language: &'static str,
+    /// The index of this language.
+    pub home: &'static str,
+    pub site: &'static str,
+    pub skip: &'static str,
+    pub chapters: &'static str,
+    pub pager: &'static str,
+    pub previous: &'static str,
+    pub next: &'static str,
+    pub index_title: &'static str,
+    pub intro: &'static str,
+    pub footer: &'static str,
+    /// The text before and after the number of minutes.
+    minutes: (&'static str, &'static str),
+}
+
+impl Labels {
+    /// The reading-time line, or nothing for an article without words.
+    pub fn reading_time(&self, minutes: usize) -> String {
+        match minutes {
+            0 => String::new(),
+            n => format!("{}{n}{}", self.minutes.0, self.minutes.1),
+        }
+    }
+}
+
+pub static ENGLISH: Labels = Labels {
+    lang: "en",
+    other_lang: "ja",
+    other_language: "日本語",
+    home: "/",
+    site: "Senu notes",
+    skip: "Skip to the article",
+    chapters: "Chapters",
+    pager: "Previous and next",
+    previous: "Previous",
+    next: "Next",
+    index_title: "Build a small notes site with Rust",
+    intro: "A course for complete beginners: you run this site on your own computer, \
+            add notes to it in Markdown, and then rebuild a small piece of the Rust code \
+            behind it. You need no Rust, only a little JavaScript.",
+    footer: "Senu is an experimental seed, not production software. \
+             Each page here is a Markdown file in content/en/ of the Senu repository.",
+    minutes: ("About ", " min read"),
+};
+
+pub static JAPANESE: Labels = Labels {
+    lang: "ja",
+    other_lang: "en",
+    other_language: "English",
+    home: "/ja/",
+    site: "Senu ノート",
+    skip: "本文へ移動",
+    chapters: "章の一覧",
+    pager: "前後の章",
+    previous: "前へ",
+    next: "次へ",
+    index_title: "Rust で小さなノートサイトを作る",
+    intro: "まったくの初心者向けの講座です。このサイトを自分のコンピューターで動かし、\
+            Markdown でノートを書き足し、最後にサイトを支える Rust のコードを少しだけ作り直します。\
+            Rust の知識は要りません。JavaScript を少し知っていれば十分です。",
+    footer: "Senu は実験的な試作で、本番用のソフトウェアではありません。\
+             ここの各ページは、Senu リポジトリの content/ja/ にある Markdown ファイルです。",
+    minutes: ("約 ", " 分で読めます"),
+};
+
+/// A link in the chapter list or the previous and next links.
+#[derive(Clone, Debug)]
+pub struct NavLink {
+    pub href: String,
+    pub title: String,
+    pub current: bool,
+}
+
+/// What the index and article templates share.
+#[derive(Debug)]
+pub struct Frame<'a> {
+    pub labels: &'static Labels,
+    pub title: &'a str,
+    /// The language link: the translation, or the other index.
+    pub alternate: &'a str,
+    pub nav: &'a [NavLink],
+    pub previous: Option<&'a NavLink>,
+    pub next: Option<&'a NavLink>,
+}
+
+#[derive(Template)]
+#[template(path = "site_index.html")]
+struct IndexPage<'a> {
+    frame: &'a Frame<'a>,
+}
+
+#[derive(Template)]
+#[template(path = "site_article.html")]
+struct ArticlePage<'a> {
+    frame: &'a Frame<'a>,
+    reading: &'a str,
+    body: &'a TrustedHtml,
+}
+
+/// Renders the index of one language.
+pub fn index_page(frame: &Frame<'_>) -> Result<String, askama::Error> {
+    IndexPage { frame }.render()
+}
+
+/// Renders one article around its pre-rendered body.
+pub fn article_page(
+    frame: &Frame<'_>,
+    reading: &str,
+    body: &TrustedHtml,
+) -> Result<String, askama::Error> {
+    ArticlePage {
+        frame,
+        reading,
+        body,
+    }
+    .render()
 }
 
 #[cfg(test)]
