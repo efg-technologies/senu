@@ -658,3 +658,12 @@ command, its exit status and the decisive lines.
   fresh listing of `content/`; symlinks, a directory named `x.md`, a
   non-UTF-8 name, a 128 KiB + 1 file and invalid UTF-8 are refused, and
   `.x.md.swp` and `x.md~` are ignored.
+
+### Reading time (`src/reading.rs`)
+
+- Red: with the first attempt `words / WORDS_PER_MINUTE`,
+  `cargo test --lib -q reading` exited 101: `2 passed; 3 failed`, with
+  `left: 0 right: 1` for one word, `left: 1 right: 2` for 201 words and an
+  off-by-one at `usize::MAX`.
+- Green: quotient plus one when the remainder is not zero; the same command
+  exited 0 with `5 passed`, including `usize::MAX` without overflow.

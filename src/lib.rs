@@ -13,4 +13,5 @@ pub mod discover;
 pub mod http;
 pub mod mcp;
 pub mod operation;
+pub mod reading;
 pub mod view;
