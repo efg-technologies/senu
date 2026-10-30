@@ -602,3 +602,43 @@ the branch and exited 0.
 Not checked: systems other than Linux (the new tests read `/proc`), CI runs
 of these commits, and a browser view of the changed pages. The site has not
 been published, so it has no public URL.
+
+## Coloured Cargo output in CI
+
+The first CI run of `0f1f7ec` passed every check except the last one,
+`python3 scripts/check_tutorial.py exercise`, which stopped at
+``steps.sh:suite-red: expected line not found in order: error: test failed, to
+rerun pass `--test adapter_http` ``. CI sets `CARGO_TERM_COLOR=always`, so Cargo
+wrapped `error` in ANSI colour codes, and the checker compared that text with
+the plain line in the `.out` file; locally, without forced colours, the step
+passed. The same codes would also have hidden a coloured compiler error from
+the check that a red step fails only because a test assertion failed, since
+the line no longer started with `error`.
+
+Files: `scripts/check_tutorial.py` and `scripts/test_check_tutorial.py`.
+`normalize()` now removes ANSI control sequences before any comparison, in
+both modes. CI, the tutorial and the product are unchanged.
+
+### Red and green
+
+Two regression tests run `check_exercise` on a temporary repository whose
+only step, `suite-red`, prints coloured Cargo diagnostics and exits 101.
+Against the previous checker, `python3 scripts/test_check_tutorial.py` ran 8
+tests with 2 failures: the coloured line from CI raised the same "expected
+line not found" error, and a coloured `error[E0425]` line printed before it
+was not reported as a failure for another reason. After the fix the 8 tests
+passed in three consecutive runs.
+
+### Checks after the CI fix
+
+| Command | Exit | Result |
+|---|---|---|
+| `python3 scripts/test_check_tutorial.py` | 0 | 8 tests passed |
+| `CARGO_TERM_COLOR=always python3 scripts/check_tutorial.py exercise` | 0 | branch 0, expect 0, red 101, rename 0, green 0, suite-red 101, fixtures 0, suite-green 0, parity 0, restore 0; working tree, HEAD and status unchanged |
+| the same without `CARGO_TERM_COLOR` | 0 | the same steps and exits; working tree unchanged |
+| `CARGO_TERM_COLOR=always python3 scripts/check_tutorial.py commands` | 0 | 13 sections matched their expected output |
+
+Not checked: `cargo fmt` and `cargo clippy`, because no Rust file changed;
+the test count of `suite-green`, which the checker does not print (it
+requires every `test result:` line to be `ok`); the site build, because no
+tutorial source changed; and CI runs of these commits.
