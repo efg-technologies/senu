@@ -12,7 +12,7 @@ cargo run --quiet -- mcp
 senu: MCP is off by default; start it with `senu mcp --enable-mcp`
 ```
 
-The script `scripts/check_mcp.py` plays the part of an AI tool: it starts Senu in MCP mode, asks for the tool list, calls `list_projects` and prints the answer. It needs Python 3. MCP mode also needs a token before it starts; here it is a demo value:
+The script `scripts/check_mcp.py` plays the part of an AI tool: it starts Senu in MCP mode, opens the conversation with the MCP `initialize` message, calls `list_projects` with `tools/call` and prints the answer. It needs Python 3. MCP mode also needs a token before it starts; here it is a demo value. The token is only a startup setting: over stdio, Senu trusts the local program that launches it, and the token does not authenticate any remote party:
 
 ```sh check=mcp
 SENU_MCP_TOKEN=demo-mcp-token python3 scripts/check_mcp.py ./target/debug/senu mcp --enable-mcp

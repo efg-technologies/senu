@@ -14,6 +14,24 @@ calls the same function, so all three return the same projects in the same
 order. A test checks that. Senu also serves a small site of Markdown
 articles, which holds a beginner course.
 
+## New to Rust? Start with the course
+
+The beginner course is a small site that Senu serves on your own computer;
+it is not published on the web. Install Rust and Git as its
+[installation chapter](content/en/02-install.md) describes, then run:
+
+```text
+cd ~
+git clone https://github.com/efg-technologies/senu.git
+cd ~/senu
+cargo run --quiet -- site
+```
+
+The first build takes several minutes. Then open http://127.0.0.1:3000/
+(English) or http://127.0.0.1:3000/ja/ (Japanese). The course needs no
+credentials; [Beginner course and `senu site`](#beginner-course-and-senu-site)
+has the details. The rest of this README describes the transport demo.
+
 ## Status: experimental local demo
 
 Senu is a runnable seed, not a product, and it is not audited security

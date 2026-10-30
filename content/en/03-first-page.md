@@ -4,13 +4,11 @@ Before you read any Rust, you will start Senu and open its pages in your browser
 
 ## Start Senu
 
-In the terminal, inside the `senu` folder, type this command and press Enter:
+The command is `cargo run --quiet -- site`. `cargo run` first **builds** the program, which means turning the Rust source files into a program your computer can run, and then **runs** it. `--quiet` hides Cargo's progress messages. Everything after `--` is passed to Senu itself, and `site` tells Senu to serve these articles. In the terminal, inside the `senu` folder, type it and press Enter:
 
 ```sh check=site server
 cargo run --quiet -- site
 ```
-
-`cargo run` first **builds** the program, which means turning the Rust source files into a program your computer can run, and then **runs** it. `--quiet` hides Cargo's progress messages. Everything after `--` is passed to Senu itself, and `site` tells Senu to serve these articles.
 
 The first build compiles Senu and everything it uses, so the terminal may show nothing at all for several minutes. Let it work. When Senu is ready, it prints one line:
 
@@ -44,13 +42,13 @@ Reload the page in the browser, and it is back.
 
 ## Ask from a second terminal
 
-A browser is not the only program that can ask a server for a page. Open a **second terminal** (a new window, or a new tab in the same window), so that Senu keeps running in the first one, and type `cd senu` in it. Then run:
+A browser is not the only program that can ask a server for a page. Open a **second terminal** (a new window, or a new tab in the same window), so that Senu keeps running in the first one, and type `cd ~/senu` in it. The next command uses two programs. `curl` fetches the page and prints its HTML, the text from which the browser draws the page; `-s` hides curl's progress meter. The `|` sign passes that output to `grep`, which prints only the lines that contain `<h1>`, the tag around the page's main heading. Run:
 
 ```sh check=title
 curl -s http://127.0.0.1:3000/ | grep "<h1>"
 ```
 
-`curl` fetches the page and prints its HTML, the text from which the browser draws the page; `-s` hides curl's progress meter. The `|` sign passes that output to `grep`, which prints only the lines that contain `<h1>`, the tag around the page's main heading:
+It prints the heading of the start page:
 
 ```text check=title
 <h1>Build a small notes site with Rust</h1>
@@ -66,8 +64,8 @@ Find the link at the top of the page that switches to Japanese and follow it. Wh
 
 ## If something goes wrong
 
-- **"could not find `Cargo.toml`"**: the terminal is not in the `senu` folder. Run `pwd`, then `cd senu`.
-- **"senu: cannot listen on 127.0.0.1:3000: address in use"**: Senu or another program already uses port 3000. Find the terminal where Senu runs and press Ctrl+C there. If another program holds the port, start Senu on another one with `SENU_BIND=127.0.0.1:3001 cargo run --quiet -- site` and open http://127.0.0.1:3001/ instead.
+- **"could not find `Cargo.toml`"**: the terminal is not in the `senu` folder. Run `pwd`, then `cd ~/senu`.
+- **"senu: cannot listen on 127.0.0.1:3000: address in use"**: Senu or another program already uses port 3000. Find the terminal where Senu runs and press Ctrl+C there. If another program holds the port, start Senu on another one. Writing `NAME=value` in front of a command sets the setting `NAME` for just that command, with no spaces around `=`; `SENU_BIND` tells Senu which address and port to use. Run `SENU_BIND=127.0.0.1:3001 cargo run --quiet -- site` and open http://127.0.0.1:3001/ instead.
 - **The browser cannot connect**: Senu is not running. Look at its terminal; if the prompt is back, start Senu again.
 - **"linker `cc` not found"** or another error during the first build: go back to the installation chapter.
 

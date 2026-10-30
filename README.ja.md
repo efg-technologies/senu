@@ -13,6 +13,24 @@ stdio 上の [MCP](https://modelcontextprotocol.io/) ツール (明示的に有�
 同じ順序で返します。これはテストで確認しています。Senu は Markdown の記事による
 小さなサイトも配信し、そこに初心者向けの講座があります。
 
+## Rust がはじめての方は講座から
+
+初心者向けの講座は、Senu が自分のコンピューターで配信する小さなサイトです。Web 上には
+公開していません。講座の[インストールの章](content/ja/02-install.md)のとおりに
+Rust と Git を入れてから、次を実行してください。
+
+```text
+cd ~
+git clone https://github.com/efg-technologies/senu.git
+cd ~/senu
+cargo run --quiet -- site
+```
+
+最初のビルドには数分かかります。そのあと http://127.0.0.1:3000/ja/ (日本語) か
+http://127.0.0.1:3000/ (英語) を開いてください。講座に認証情報は要りません。詳しくは
+[初心者向け講座と `senu site`](#初心者向け講座と-senu-site) を見てください。この README の
+残りは、三つの経路のデモの説明です。
+
 ## 状態: 実験的なローカルデモ
 
 Senu は動かせるシードであって製品ではなく、監査済みのセキュリティソフトウェアでも

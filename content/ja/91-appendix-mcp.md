@@ -12,7 +12,7 @@ cargo run --quiet -- mcp
 senu: MCP is off by default; start it with `senu mcp --enable-mcp`
 ```
 
-MCP は既定で無効なので `senu mcp --enable-mcp` で起動するように、という意味です。スクリプト `scripts/check_mcp.py` は AI の道具の役をします。Senu を MCP モードで起動し、道具の一覧を尋ね、`list_projects` を呼んで答えを表示します。Python 3 が必要です。MCP モードは起動の前にトークンも必要とし、ここではデモ用の値を使います。
+MCP は既定で無効なので `senu mcp --enable-mcp` で起動するように、という意味です。スクリプト `scripts/check_mcp.py` は AI の道具の役をします。Senu を MCP モードで起動し、MCP の `initialize` メッセージでやり取りを始め、`tools/call` で `list_projects` を呼んで答えを表示します。Python 3 が必要です。MCP モードは起動の前にトークンも必要とし、ここではデモ用の値を使います。トークンは起動時の設定にすぎません。stdio では、Senu は自分を起動したローカルのプログラムを信頼しており、トークンは離れた相手を認証しません。
 
 ```sh check=mcp
 SENU_MCP_TOKEN=demo-mcp-token python3 scripts/check_mcp.py ./target/debug/senu mcp --enable-mcp

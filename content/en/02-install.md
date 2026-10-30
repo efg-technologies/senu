@@ -17,14 +17,15 @@ When the installer has finished, close the terminal and open a new one, so that 
 
 ## Download Senu
 
-Downloading a project with Git is called **cloning**. In the terminal, from your home folder, run these two commands. The first creates a folder called `senu`; the second makes it the working directory:
+Downloading a project with Git is called **cloning**. In the terminal, run these three commands. The first goes to your home folder, `~`, wherever the terminal was; the second creates a folder called `senu` there; the third makes it the working directory:
 
 ```sh manual
+cd ~
 git clone https://github.com/efg-technologies/senu.git
-cd senu
+cd ~/senu
 ```
 
-From now on, every command in this course runs inside that `senu` folder. When you open a new terminal later, type `cd senu` first.
+From now on, every command in this course runs inside that `senu` folder. When you open a new terminal later, type `cd ~/senu` first; it works from any folder.
 
 ## Check the tools
 
@@ -53,7 +54,7 @@ Run `ls` inside the `senu` folder. Which folder do you think holds the pages you
 - **"cargo: command not found"**: open a new terminal. If that does not help, run the installer again and read its last lines, which explain how to update your PATH, the list of folders where the terminal looks for commands.
 - **"toolchain '1.99.1' is not installed"**: run `rustup toolchain install 1.99.1` inside the `senu` folder.
 - **"linker `cc` not found"** during the first build in the next chapter: the C compiler package is missing; see the Linux and macOS notes above.
-- **"destination path 'senu' already exists"**: you cloned before. Type `cd senu` and continue.
+- **"destination path 'senu' already exists"**: you cloned before. Type `cd ~/senu` and continue.
 
 This course is tested only on Linux (Ubuntu on GitHub's servers and one Linux workstation). macOS and WSL follow the official instructions, but nobody has checked them for this course.
 

@@ -4,7 +4,7 @@ Every article page shows a reading time under its title, such as "About 1 min re
 
 ## Where the function lives
 
-Rust code lives in the `src` folder. Open `src/reading.rs` in your editor and read it before you change anything. Each `.rs` file is a **module**, Rust's name for a file of code that other files can use. `src/lib.rs` lists Senu's modules with lines such as `pub mod reading;`, where `pub` (public) works much like `export` in JavaScript. Another module brings the function in with `use crate::reading::reading_minutes;`, much like `import { readingMinutes } from "./reading.js"`.
+Rust code lives in the `src` folder. Open `src/reading.rs` in your editor and read it before you change anything. Each `.rs` file is a **module**, Rust's name for a file of code that other files can use. `src/lib.rs` lists Senu's modules with lines such as `pub mod reading;`, where `pub` (public) works much like `export` in JavaScript. Another module brings the function in with `use crate::reading::reading_minutes;`, much like `import { readingMinutes } from "./reading.js"`. Such a **path** names its parts from the outside in, separated by `::` much as `/` separates folders: `crate` is the top of Senu's own code, `reading` the module and `reading_minutes` the function.
 
 When Senu builds a page, it counts the words of the note outside code boxes and asks `reading_minutes` how many minutes they take. The estimate is deliberately simple: 200 words per minute, rounded up, so that a short note shows 1 minute. Japanese has no spaces between words, so for Japanese notes Senu counts two characters as one word; that is rougher still.
 
@@ -18,6 +18,8 @@ When Senu builds a page, it counts the words of the note outside code boxes and 
 - `if leftover_words > 0 { a } else { b }` works like JavaScript's `if`, but it also produces a value, `a` or `b`. The last line of a function, written without a semicolon, is the value the function returns, as if it had `return` in front.
 
 A **test** is a small function that calls your code and checks the answer. The line `#[test]` above a function marks it as a test, and `assert_eq!(left, right)` checks that two values are equal and stops the test with a message when they are not. The `!` marks a **macro**, code that Rust expands for you; here you can read it as an ordinary function call.
+
+Tests usually sit at the end of the file, in a small module of their own: `#[cfg(test)]` above `mod tests { ... }` means that this module is built only when tests run, and inside it `use super::reading_minutes;` imports the function from `super`, the module around it, which here is the rest of `src/reading.rs`.
 
 ## Red: a first attempt
 
@@ -45,8 +47,6 @@ mod tests {
     }
 }
 ```
-
-`#[cfg(test)] mod tests { ... }` is a small module inside the file that is built only when tests run, and `use super::reading_minutes;` imports the function from the file around it.
 
 Run the tests of this module. `--lib` means the library part of Senu, and `reading::` selects the tests whose full names start with it:
 

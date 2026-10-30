@@ -20,16 +20,31 @@ You will switch between three programs, and every step says which one to use.
 
 When the terminal is ready for a command, it shows a **prompt**: a short text that often ends in `$` or `%`, such as `ada@laptop:~$`. The terminal prints the prompt; you never type it. In this course, a grey box with a command contains exactly what you type after the prompt, and the box after it shows what should come back.
 
-Open a terminal now. Type `pwd` and press Enter: it prints the folder the terminal is working in, called the **working directory**. Then type `ls` and press Enter to list what is in that folder. Your output will differ from this example, because it shows your own computer:
+Open a terminal now. Type this command and press Enter; it prints the folder the terminal is working in, called the **working directory**:
 
 ```text
 pwd
+```
+
+The answer is one line like the one below. Do not type it: it is output, and yours will differ, because it shows your own computer:
+
+```text
 /home/ada
+```
+
+A new terminal starts in your **home folder**, your own folder on the computer. Its short name is `~` (a tilde), which is why many prompts show `~`, as in `ada@laptop:~$` above. Now type this command and press Enter to list what is in the working directory:
+
+```text
 ls
+```
+
+It answers with names such as these:
+
+```text
 Desktop  Documents  Downloads
 ```
 
-`cd` changes the working directory: `cd Documents` moves into the Documents folder, `cd ..` moves one level up, and `cd` on its own goes back to your home folder. Most commands in this course must run inside the `senu` folder that you download in the next chapter, so `pwd` is the first thing to try whenever a command says it cannot find something.
+`cd` changes the working directory: `cd Documents` moves into the Documents folder, `cd ..` moves one level up, and `cd ~` goes back to your home folder from anywhere. `~/senu` means the `senu` folder inside your home folder, so `cd ~/senu` works from any folder too. Most commands in this course must run inside the `senu` folder that you download in the next chapter, so `pwd` is the first thing to try whenever a command says it cannot find something.
 
 ## Exercise
 
