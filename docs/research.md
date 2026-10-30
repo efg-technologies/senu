@@ -133,3 +133,22 @@ Senu.
 
 The first slice is small and deterministic, so standard `cargo test` covers
 it. No speed or security claims are made for either choice.
+
+## Spec 0003 sources (checked 2026-10-31)
+
+- pulldown-cmark `Event` and `Tag`:
+  https://docs.rs/pulldown-cmark/latest/pulldown_cmark/enum.Event.html. Senu
+  uses version 0.13.6 with default features off and only the `html` feature;
+  every event and tag is matched explicitly.
+- Cargo build scripts, `rerun-if-changed` on a directory:
+  https://doc.rust-lang.org/cargo/reference/build-scripts.html.
+- Rust Book installation chapter, linked from the course for Linux and macOS:
+  https://doc.rust-lang.org/book/ch01-01-installation.html. Microsoft's WSL
+  installation guide is linked for Windows.
+- Learning structure only, no text copied: the Rails getting-started guide,
+  https://guides.rubyonrails.org/getting_started.html, and the table of
+  contents of the Ruby on Rails Tutorial, https://www.railstutorial.org/book
+  (a first app with a visible result, then a small app, then pages built
+  red-green-refactor, with language concepts taught inside the application).
+- Askama's `HtmlSafe` documentation, read in the 0.16.1 source: it is a
+  speed-up hint that may still escape. SAFE-4's test would catch that.

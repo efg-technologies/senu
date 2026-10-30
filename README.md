@@ -11,7 +11,8 @@ an opt-in [MCP](https://modelcontextprotocol.io/) tool over stdio built with
 the official [`rmcp`](https://rust.sdk.modelcontextprotocol.io/) SDK. Each
 transport checks its own credential, picks a principal on the server side and
 calls the same function, so all three return the same projects in the same
-order. A test checks that.
+order. A test checks that. Senu also serves a small site of Markdown
+articles, which holds a beginner course.
 
 ## Status: experimental local demo
 
@@ -87,26 +88,42 @@ acme-001 and acme-003. Any failed step makes the quickstart exit non-zero.
 The HTML output shows Askama's escaping: the demo project named
 `<script>alert('x')</script> & "Launch" Notes` is rendered as text.
 
-## Tutorial
+## Beginner course and `senu site`
 
-[The tutorial](docs/tutorial/src/index.md) has six short chapters in
-English, with a [Japanese translation](docs/tutorial/src/ja/index.md). It
-runs the quickstart, reads `list_projects`, tries authorization, validation
-and tenant isolation from outside, compares the escaped HTML page with the
-JSON API, starts the opt-in MCP tool, and ends with an exercise that renames
-a project test-first. It covers the same experimental scope as this README
-and adds no features. Its commands and expected output are files under
-`docs/tutorial` that `scripts/check_tutorial.py` runs, and
-`scripts/build_site.sh` builds the chapters into one static mdBook site,
-with English at the root and Japanese under `ja/`. The site is not published
-yet. [Spec 0002](docs/specs/0002-tutorial.md) describes the tutorial and its
-checks.
+`senu site` serves a beginner course for people who know no Rust, written as
+Markdown articles in `content/en` and `content/ja` and served by Senu itself
+on a loopback address:
+
+```text
+cargo run --quiet -- site
+```
+
+Then open http://127.0.0.1:3000/ (English) or http://127.0.0.1:3000/ja/
+(Japanese). The course starts with a visible page in the browser, has the
+learner write notes, and then rebuild the reading-time function test first;
+two optional appendices cover the catalogue, the API and MCP.
+
+Any file named like `content/en/51-my-note.md` (two digits, a lowercase slug
+and `.md`) becomes the page `/my-note` the next time `cargo run` or
+`cargo build` runs: `build.rs` embeds the files, so the binary reads nothing
+at run time and needs a rebuild after every change. The first line must be a
+`# Title`. Raw HTML is shown as text, images are refused, and links must name
+an existing page exactly or start with `https://`; a broken rule stops
+startup with the file, the line and the reason. The content is trusted,
+written by the repository's authors; this is not a system for untrusted
+input. `senu site` takes only `SENU_BIND` and refuses every credential
+variable; it has no `/projects`, `/api/*` or MCP routes.
+[Spec 0003](docs/specs/0003-articles-and-beginner-tutorial.md) describes the
+articles, the site and the course; it supersedes the mdBook tutorial of
+spec 0002. The site is not published anywhere; CI keeps a static snapshot as
+an artifact.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `senu serve` | HTML and JSON on `SENU_BIND` (default `127.0.0.1:3000`, loopback IP literals only, port 0 allowed) |
+| `senu site` | the Markdown articles as HTML on `SENU_BIND`, with no credentials |
 | `senu mcp --enable-mcp` | MCP over stdio until stdin closes; exits 0 on EOF |
 | `senu --help` | usage |
 
@@ -150,7 +167,9 @@ configures an ERB-like syntax:
 Blocks use `<%! %>`, expressions `<%= %>` and comments `<%# %>`. Plain `<%`
 for blocks does not work, because Askama rejects a delimiter that is a prefix
 of another. A test fails if a template or the configuration uses the `safe`
-filter or turns escaping off.
+filter or turns escaping off. The one exception is the article body, which
+is `TrustedHtml` from the Markdown policy: the same test requires exactly
+one `HtmlSafe` impl in `src/`, on that type.
 
 ## Development
 
@@ -159,23 +178,21 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked -- --test-threads=2
 scripts/quickstart.sh
-python3 scripts/check_tutorial.py commands
-python3 scripts/check_tutorial.py exercise
-scripts/install_mdbook.sh
-MDBOOK=target/tools/mdbook-0.5.4/mdbook scripts/build_site.sh
+python3 scripts/check_tutorial.py
+python3 scripts/snapshot_site.py target/site
 ```
 
 The tests include `tests/quickstart_check.rs`, which runs the quickstart's MCP
-checker against fake servers, and `tests/site_scripts.rs`, which checks the
-site scripts against fake sites; both need `python3`. `check_tutorial.py
-exercise` runs the tutorial's exercise in a temporary copy of the last commit
-and leaves the working tree unchanged; commit your changes first, because it
-refuses to run while tracked files differ from HEAD. `install_mdbook.sh` downloads the pinned mdBook 0.5.4
-for x86_64 Linux into `target/tools` and checks its digest, and
-`build_site.sh` writes the checked site to `target/site`. CI runs the same
-commands on GitHub-hosted Ubuntu. Read
-[the spec](docs/specs/0001-project-catalogue.md),
-[the development log](docs/development.md) and
+checker against fake servers, and `tests/tutorial_checker.rs`, which runs the
+tutorial checker's own tests; both need `python3`. `check_tutorial.py` runs
+the course in English and then in Japanese, each in a temporary copy of the
+last commit, and leaves the working tree unchanged; commit your changes
+first, because it refuses to run while tracked files differ from HEAD.
+`snapshot_site.py` needs a new or empty directory; it starts `senu site`,
+saves every page as a static file with relative links and checks them. CI
+runs the same commands on GitHub-hosted Ubuntu and uploads the snapshot as an
+artifact; nothing is deployed. Read
+[the specs](docs/specs/), [the development log](docs/development.md) and
 [the research notes](docs/research.md) for the details.
 
 ## License

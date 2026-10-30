@@ -1,6 +1,6 @@
 # Senu Spec 0002: Tutorial and Documentation Site
 
-Status: implemented, 2026-10-30. This spec covers the tutorial in `docs/tutorial` and the scripts that check and build it. It does not change Senu's behaviour: the product source and its tests keep the spec 0001 catalogue.
+Status: superseded by spec 0003 on 2026-10-31; implemented 2026-10-30. The files it describes were removed when the spec 0003 course replaced them, and this text is kept as history. This spec covers the tutorial in `docs/tutorial` and the scripts that check and build it. It does not change Senu's behaviour: the product source and its tests keep the spec 0001 catalogue.
 
 ## 1. Boundaries
 

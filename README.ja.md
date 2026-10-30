@@ -10,7 +10,8 @@ Senu は実験的な Rust のシード (たたき台) です。純粋関数 `lis
 stdio 上の [MCP](https://modelcontextprotocol.io/) ツール (明示的に有効化したときだけ)
 の三つの経路で共有します。各経路はそれぞれの認証情報を確かめ、サーバー側で
 プリンシパル (呼び出し主体) を選んでから同じ関数を呼ぶため、三つとも同じプロジェクトを
-同じ順序で返します。これはテストで確認しています。
+同じ順序で返します。これはテストで確認しています。Senu は Markdown の記事による
+小さなサイトも配信し、そこに初心者向けの講座があります。
 
 ## 状態: 実験的なローカルデモ
 
@@ -85,24 +86,39 @@ acme-003 が返った場合にだけ成功します。そうでなければサ�
 HTML の出力では Askama のエスケープが働き、`<script>alert('x')</script> & "Launch" Notes`
 という名前のデモプロジェクトが文字列として表示されます。
 
-## チュートリアル
+## 初心者向け講座と `senu site`
 
-[チュートリアル](docs/tutorial/src/ja/index.md) は短い 6 章からなり、英語版が
-[正本](docs/tutorial/src/index.md) です。quickstart を実行し、`list_projects` を読み、
-認可・入力検証・テナント分離を外から試し、エスケープされた HTML ページと JSON API を比べ、
-明示的に有効化する MCP ツールを起動して、最後にテストを先に書いてプロジェクト名を変える
-演習を行います。扱う範囲はこの README と同じ実験的なもので、機能は追加しません。
-コマンドと期待される出力は `docs/tutorial` の下のファイルで、`scripts/check_tutorial.py`
-がそれらを実行して確かめます。`scripts/build_site.sh` は各章を一つの静的な mdBook サイトに
-ビルドし、英語版をルートに、日本語版を `ja/` の下に置きます。サイトはまだ公開していません。
-チュートリアルとその確認方法は [仕様 0002](docs/specs/0002-tutorial.md) (英語) に
-まとめています。
+`senu site` は、Rust を知らない人向けの講座を配信します。講座は `content/en` と
+`content/ja` の Markdown の記事で、Senu 自身がループバックアドレスで配信します。
+
+```text
+cargo run --quiet -- site
+```
+
+起動したら http://127.0.0.1:3000/ja/ (日本語) か http://127.0.0.1:3000/ (英語) を
+開きます。講座はまずブラウザーにページを表示し、学習者がノートを書き、最後に読む時間を
+計算する関数をテストから先に作り直します。任意の付録二つで、プロジェクト一覧、API、MCP を
+扱います。
+
+`content/ja/51-my-note.md` のような名前 (2 桁の数字、小文字のスラッグ、`.md`) の
+ファイルは、次に `cargo run` か `cargo build` を実行したときに `/ja/my-note` のページに
+なります。`build.rs` がファイルを埋め込むので、バイナリーは実行中に何も読まず、変更のたびに
+ビルドし直す必要があります。1 行目は `# タイトル` でなければなりません。生の HTML は文字として
+表示し、画像は断り、リンクは既存のページの正確なアドレスか `https://` で始まるものに限ります。
+決まりを破ると、ファイル、行、理由を表示して起動を止めます。内容はリポジトリーの作者が書く
+信頼できるものを前提とし、信頼できない入力を扱う仕組みではありません。`senu site` は
+`SENU_BIND` だけを受け付け、認証情報の変数はすべて拒みます。`/projects`、`/api/*`、
+MCP のルートはありません。記事、サイト、講座は
+[仕様 0003](docs/specs/0003-articles-and-beginner-tutorial.md) (英語) にまとめていて、
+仕様 0002 の mdBook のチュートリアルを置き換えます。サイトはどこにも公開していません。
+CI は静的なスナップショットを成果物として保存します。
 
 ## コマンド
 
 | コマンド | 動作 |
 |---|---|
 | `senu serve` | `SENU_BIND` (既定は `127.0.0.1:3000`、ループバックの IP リテラルのみ、ポート 0 可) で HTML と JSON を提供 |
+| `senu site` | Markdown の記事を `SENU_BIND` で HTML として提供 (認証情報なし) |
 | `senu mcp --enable-mcp` | stdin が閉じるまで stdio で MCP を提供し、EOF で終了コード 0 |
 | `senu --help` | 使い方を表示 |
 
@@ -144,7 +160,8 @@ HTML の出力では Askama のエスケープが働き、`<script>alert('x')</s
 ブロックは `<%! %>`、式は `<%= %>`、コメントは `<%# %>` です。ブロックに `<%` を
 そのまま使えないのは、Askama がほかの区切り文字の接頭辞になる区切り文字を拒否するためです。
 テンプレートや設定が `safe` フィルターを使ったりエスケープを無効にしたりすると、
-テストが失敗します。
+テストが失敗します。唯一の例外は記事の本文で、Markdown のポリシーが作る `TrustedHtml` です。
+同じテストが、`src/` の中の `HtmlSafe` の実装がその型に対する一つだけであることを確かめます。
 
 ## 開発
 
@@ -153,22 +170,20 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked -- --test-threads=2
 scripts/quickstart.sh
-python3 scripts/check_tutorial.py commands
-python3 scripts/check_tutorial.py exercise
-scripts/install_mdbook.sh
-MDBOOK=target/tools/mdbook-0.5.4/mdbook scripts/build_site.sh
+python3 scripts/check_tutorial.py
+python3 scripts/snapshot_site.py target/site
 ```
 
 テストには、quickstart の MCP チェッカーを偽のサーバーに対して動かす
-`tests/quickstart_check.rs` と、サイト用のスクリプトを偽のサイトに対して確かめる
-`tests/site_scripts.rs` が含まれ、どちらも `python3` が必要です。
-`check_tutorial.py exercise` はチュートリアルの演習を最後のコミットの一時的なコピーで実行し、
-作業ツリーを変えません。追跡しているファイルが HEAD と違う間は実行を拒むので、先に変更を
-コミットしてください。`install_mdbook.sh` は固定版の mdBook 0.5.4 (x86_64 Linux 用) を
-`target/tools` にダウンロードしてダイジェストを確かめ、`build_site.sh` は確認済みの
-サイトを `target/site` に書き出します。CI は GitHub がホストする Ubuntu で同じコマンドを
-実行します。詳細は
-[仕様](docs/specs/0001-project-catalogue.md)、[開発ログ](docs/development.md)、
+`tests/quickstart_check.rs` と、チュートリアル確認スクリプト自身のテストを実行する
+`tests/tutorial_checker.rs` が含まれ、どちらも `python3` が必要です。
+`check_tutorial.py` は講座を英語、日本語の順に、それぞれ最後のコミットの一時的なコピーで
+実行し、作業ツリーを変えません。追跡しているファイルが HEAD と違う間は実行を拒むので、
+先に変更をコミットしてください。`snapshot_site.py` には新しいか空のディレクトリーを渡します。
+`senu site` を起動し、すべてのページを相対リンクの静的ファイルとして保存して確かめます。
+CI は GitHub がホストする Ubuntu で同じコマンドを実行し、スナップショットを成果物として
+保存します。どこにもデプロイはしません。詳細は
+[仕様](docs/specs/)、[開発ログ](docs/development.md)、
 [調査メモ](docs/research.md) を参照してください (いずれも英語)。
 
 ## ライセンス
