@@ -1246,3 +1246,95 @@ RED, with the new assertions and the old `package.json` and lockfile:
 `left: Null` for `overrides`. GREEN with the new files: 5 passed.
 
 Both READMEs name the aims' acronym, MCS, in the existing heading.
+
+## Spec 0005, baseline B: `get_project` the current way (BASE-1)
+
+Bases: stage 1 ends at 2369462; c2c73eb adds the parser override and
+59dbc2b bounds §6's permission-first guarantee. 59dbc2b is the start of
+the measurement, and B is 7d81725 (`sample: add get_project the current
+way`). B reuses `single_authorization`, `bearer_matches`, `basic_matches`,
+`query_arguments`, `Surface::error`, the `limits` and `response_headers`
+layers, `HTML_CSP` and `Catalogue::for_tenant`; nothing was copied.
+
+- `src/operation.rs`: `Permission::ViewProject`, which the three demo
+  principals hold; `MAX_ID_BYTES`; `OpError::InvalidId` (`invalid_id`)
+  and `OpError::NotFound` (`not_found`); and the pure `get_project`:
+  permission first, then a strict `{id: string}` decode, then the id's
+  form, then a lookup inside the principal's tenant only.
+- `src/http.rs`: `HttpError::InvalidId` (400, "Invalid id"), the two
+  mappings, and two hand-written handlers, `/project` (Basic) and
+  `/api/project` (Bearer). `src/view.rs` and `templates/project.html`:
+  the page, standalone like `projects.html`, with only classes that the
+  stylesheet already had, so `npm run css` left it byte-identical.
+- `src/mcp.rs`: `GET_PROJECT_TOOL`, a second explicit tool with its own
+  schema (`id` required, `additionalProperties: false`, read-only) and a
+  second dispatch arm.
+- Tests: 13 new functions. Unit: `get1_` to `get5_` and
+  `get_project_errors_keep_their_codes_and_statuses`. Adapter: four
+  `project_routes_*` HTTP tests, two MCP tests, one parity test over
+  `acme-002` and the markup fixture `acme-003`. The serve and MCP E2E
+  sessions each add one `get_project` call.
+- Spec 0005 §9 compatibility exception: two existing tests are renamed and
+  adjusted for the explicit second tool, with no assertion removed.
+  `exactly_one_explicit_read_only_tool_is_declared` is now
+  `exactly_the_explicit_read_only_tools_are_declared` and checks the names
+  `[list_projects, get_project]` instead of a length of 1;
+  `stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof` is now
+  `stdio_session_lists_and_calls_the_explicit_tools_then_exits_on_eof`,
+  expects 2 tools and, with its new call, 9 replies instead of 8.
+- The course prints test counts, so chapter 06 and the appendix, in both
+  languages, take the checker's real output: 125 and 126 filtered tests
+  become 131 and 132, and the appendix's adapter run 20 and 1 tests
+  becomes 24 and 2.
+
+RED, with every test and adapter in place and `get_project` a stub that
+returned `InvalidRequest`: the selected tests compiled and 6 targets
+failed on assertions, for example `get1_forbidden_wins_over_any_input` with
+`left: Err(InvalidRequest)` / `right: Err(Forbidden)`. Failed: `get1_`,
+`get3_`, `get4_`, `get5_`, three `project_routes_*`, the MCP call test,
+the parity test and both E2E sessions. Passed even at RED: `get2_` (the
+stub's error happens to be the expected one), the `HttpError` mapping,
+`project_routes_check_method_and_credentials_before_input` and the two
+tool-list tests, which do not reach the operation. GREEN with the real
+function: all selected tests passed except `get4_`, whose Globex principal
+lacked `ViewProject`; the test now uses its own Globex viewer, and passed.
+
+Checks at B, through the bounded wrapper:
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
+| `cargo test --locked -- --test-threads=2` | 0 | 197 passed: the 184 of stage 1 plus 13 (unit 133, adapter 47, E2E 7, docs sync 5, quickstart checker 3, tutorial checker 2) |
+| `scripts/quickstart.sh` | 0 | |
+| `python3 scripts/test_check_tutorial.py` | 0 | 20 tests |
+| `python3 scripts/test_snapshot_site.py` | 0 | 4 tests |
+| `python3 scripts/snapshot_site.py <new dir>` | 0 | `ok: 22 pages, the stylesheet and THIRD-PARTY-NOTICES.txt saved` |
+| `python3 scripts/check_tutorial.py` | 0 | English then Japanese, 100 `ok:` block lines each; the clone and Node blocks listed as not run (manual); tree unchanged |
+| `npm run css`, then `git diff --exit-code -- assets/ui.generated.css` | 0 | unchanged |
+
+The Rust checks, the quickstart, the course checker and the snapshot ran on
+7d81725 itself. The two Python unit-test scripts ran on the same tree
+before the course counts were copied in; `scripts/` is identical at B.
+
+A1 baseline, `git diff 59dbc2b 7d81725`, non-blank lines (Rust lines
+inside a `#[cfg(test)]` module count as tests):
+
+| Part | Files | Added | Removed |
+|---|---|---|---|
+| Business Rust: types, permission, error codes, `get_project` | `src/operation.rs` | 54 | 5 |
+| HTTP binding: two routes, two handlers, error mapping | `src/http.rs` | 44 | 3 |
+| MCP: tool name, schema, metadata, dispatch | `src/mcp.rs` | 42 | 11 |
+| View and template | `src/view.rs`, `templates/project.html` | 29 | 0 |
+| Tests: unit 135, integration 261 | 8 files | 396 | 8 |
+| Docs: READMEs and AGENTS.md | 3 files | 23 | 9 |
+| Docs: course test counts | 4 files | 26 | 26 |
+
+18 files; `git diff --numstat` counts 654 added and 62 removed lines,
+blank lines included. No dependency, `Cargo.lock` or stylesheet change.
+Commands beyond the usual checks: none, except running the course checker
+again after copying its output. This is the in-tree seed baseline only; it
+says nothing about an external crate, which cannot add an operation today
+(§2, finding 3).
+
+Not run here: CI on GitHub and a browser check of `/project`.
