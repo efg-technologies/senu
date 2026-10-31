@@ -66,6 +66,8 @@ FENCE = re.compile(r"^(`{3,})(.*)$")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 OTHER_PORT = re.compile(r"127\.0\.0\.1:(?!3000\b)\d+")
 DURATION = re.compile(r"finished in \d+(\.\d+)?s")
+# The Tailwind CLI's build time, as `npm run css` prints it.
+CSS_BUILD_TIME = re.compile(r"^Done in \d+(ns|\u00b5s|ms|s|m|h|d)$", re.M)
 THREAD_ID = re.compile(r"(thread '[^']*') \(\d+\) panicked")
 SENU_HASH = re.compile(r"deps/senu-[0-9a-f]+")
 COMPILER_ERROR = re.compile(r"^error(\[E\d+\])?:")
@@ -229,6 +231,7 @@ def normalize(output, address=None):
         output = output.replace(address, DOCUMENTED)
     output = OTHER_PORT.sub("127.0.0.1:PORT", output)
     output = DURATION.sub("finished in 0.00s", output)
+    output = CSS_BUILD_TIME.sub("Done in 0ms", output)
     output = THREAD_ID.sub(r"\1 (ID) panicked", output)
     return SENU_HASH.sub("deps/senu-HASH", output)
 

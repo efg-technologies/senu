@@ -153,9 +153,9 @@ cargo test --quiet --test adapter_http --test adapter_parity
 
 ```text check=adapters
 
-running 19 tests
-...................
-test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 20 tests
+....................
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 
 running 1 test

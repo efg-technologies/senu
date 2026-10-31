@@ -150,6 +150,8 @@ CI は静的なスナップショットを成果物として保存します。
 
 - `GET /projects?q=` (Basic): 検索フォーム付きの HTML 一覧。
 - `GET /api/projects?q=` (Bearer): JSON `{"projects": [{"id", "name"}]}`。
+- `GET /_senu/ui.css` (認証なし、`senu site` にもあります): スタイルシート。
+  `text/css` でメモリーから返します。`/_senu/` は Senu の予約で、その下のほかのパスは 404 です。
 - MCP ツール `list_projects`: `readOnlyHint: true`、任意の文字列 `q` のみを受け付けます。
   結果は `structuredContent` と JSON テキストの両方で返り、処理のエラーは
   `{"error": code}` を持つ `isError` の結果になります。未知のツールは JSON-RPC
@@ -181,6 +183,36 @@ CI は静的なスナップショットを成果物として保存します。
 テストが失敗します。唯一の例外は記事の本文で、Markdown のポリシーが作る `TrustedHtml` です。
 同じテストが、`src/` の中の `HtmlSafe` の実装がその型に対する一つだけであることを確かめます。
 
+## 見た目: Tailwind CSS と Typography
+
+ページは `templates/*.html` の [Tailwind CSS](https://tailwindcss.com/) のユーティリティクラスと、
+記事の本文に使う公式 Typography プラグインの `prose` で見た目を決めています。
+見た目を変えるには、テンプレートのクラスを編集するか、すべてのページに効くテーマ変数を
+ただ一つの CSS のソースである `assets/ui.css` で変えます。
+
+```css
+@theme {
+  --font-sans: "Trebuchet MS", "Noto Sans JP", sans-serif;
+}
+```
+
+Tailwind はテンプレートで見つけたクラスの規則だけを `assets/ui.generated.css` に書き出します。
+このファイルはコミットされていてバイナリーに組み込まれるので、Senu のビルドと実行には
+Cargo だけで足ります。Node が要るのは見た目を変えるときだけです。Node 24 と付属の npm で:
+
+```sh
+npm ci            # 一度だけ: package-lock.json のとおりの版を入れる
+npm run css       # クラスやテーマを変えたあと
+cargo run -- site # または serve。これまでどおり
+```
+
+ソースと `assets/ui.generated.css` は一緒にコミットします。CI は `npm ci`、`npm run css`、
+`git diff --exit-code -- assets/ui.generated.css` を実行し、テンプレートのクラスに規則がなければ
+`cargo test` が失敗します。Typography は自分の色を持つので、`@theme` では記事の中のリンクの色は
+変わりません。`templates/site_base.html` の `<main>` に `prose-a:` のクラスを付ければ変わります。
+両パッケージのライセンスは [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) にあり、
+スタイルシートにもそれぞれの表示が残っています。
+
 ## 開発
 
 ```sh
@@ -197,8 +229,11 @@ python3 scripts/snapshot_site.py target/site
 それぞれのテストを実行する `tests/tutorial_checker.rs` が含まれ、どちらも `python3` が必要です。
 `check_tutorial.py` は講座を英語、日本語の順に、それぞれ最後のコミットの一時的なコピーで
 実行し、作業ツリーを変えません。追跡しているファイルが HEAD と違う間は実行を拒むので、
-先に変更をコミットしてください。`snapshot_site.py` には新しいか空のディレクトリーを渡します。
-`senu site` を起動し、すべてのページを相対リンクの静的ファイルとして保存して確かめます。
+先に変更をコミットしてください。講座の最後の発展の節は `npm ci` を実行するので、
+`check_tutorial.py` には Node 24、npm、npm レジストリーへの接続も必要です。
+`snapshot_site.py` には新しいか空のディレクトリーを渡します。
+`senu site` を起動し、すべてのページを相対リンクの静的ファイルとして、スタイルシートと
+ライセンス表示とともに保存して確かめます。
 CI は GitHub がホストする Ubuntu で同じコマンドを実行し、スナップショットを成果物として
 保存します。どこにもデプロイはしません。詳細は
 [仕様](docs/specs/)、[開発ログ](docs/development.md)、

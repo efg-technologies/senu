@@ -208,6 +208,15 @@ class Blocks(Scratch):
             "thread 'a::b' (ID) panicked at src/a.rs:1:2:\nfinished in 0.00s\ndeps/senu-HASH\n",
         )
 
+    def test_normalization_covers_the_tailwind_build_time_only_on_its_own_line(self):
+        raw = ("\u2248 tailwindcss v4.3.3\n\nDone in 46ms\nDone in 512\u00b5s\nDone in 2s\n"
+               "Done in 46 ms\nnot Done in 46ms\n")
+        self.assertEqual(
+            check_tutorial.normalize(raw),
+            "\u2248 tailwindcss v4.3.3\n\nDone in 0ms\nDone in 0ms\nDone in 0ms\n"
+            "Done in 46 ms\nnot Done in 46ms\n",
+        )
+
 
 class Copies(Scratch):
     def setUp(self):

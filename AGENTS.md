@@ -20,11 +20,21 @@
   `src/markdown.rs`, the crate's single `HtmlSafe` impl; every other
   template value stays escaped.
 - Both READMEs embed `scripts/quickstart.sh` byte for byte.
+- Look (spec 0004): Tailwind CSS utilities in `templates/*.html` and
+  Typography's `prose`; `assets/ui.css` is the only CSS source. After
+  changing a class or the theme, run `npm ci` once and `npm run css`, and
+  commit `assets/ui.generated.css` with the source; never edit it by hand.
+  Both routers serve it at `GET /_senu/ui.css` from memory, and `/_senu/`
+  is reserved. Version bumps change `package.json`, the lockfile, the
+  generated file and `THIRD-PARTY-NOTICES.txt` together.
 - Checks: `cargo fmt --check`,
   `cargo clippy --locked --all-targets -- -D warnings`,
   `cargo test --locked -- --test-threads=2`, `scripts/quickstart.sh`,
-  `python3 scripts/check_tutorial.py` (English, then Japanese) and
-  `python3 scripts/snapshot_site.py <new-or-empty-dir>`.
-- Generated files stay out of git: builds and snapshots in `target/`. The
+  `python3 scripts/check_tutorial.py` (English, then Japanese; it needs
+  Node and the npm registry for chapter 07's last section),
+  `python3 scripts/snapshot_site.py <new-or-empty-dir>` and the drift gate
+  `npm ci && npm run css && git diff --exit-code -- assets/ui.generated.css`.
+- Generated files stay out of git, except `assets/ui.generated.css`:
+  builds and snapshots in `target/`, packages in `node_modules/`. The
   learner's notes and edits exist only in the temporary copies that
   `check_tutorial.py` makes.

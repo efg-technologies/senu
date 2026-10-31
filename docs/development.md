@@ -1064,3 +1064,23 @@ CI uses setup-node's own 24.22.0 and its bundled npm.
 The same template edit without regenerating also fails `cargo test`,
 because `every_template_class_has_a_rule_in_the_stylesheet` finds no rule
 for the new class. Not run here: the workflow on GitHub.
+
+### Course, checker and documentation (§6, CRS-1, DOC-1)
+
+Chapter 07 gains a final optional section in both languages: a `sh manual`
+`node --version`, the `bg-white` → `bg-rose-100` patch, `grep -c` printing
+`0` with exit 1, a silent `npm ci --silent`, `npm run css`, the new
+`.bg-rose-100{…}` rule, and `cargo run --quiet -- site`. It is 71 lines with
+its fenced blocks, 8 of them prose; the blocks that §6 requires do not fit
+in 30. Chapters 01 to 06 do not mention Node. The pinned CLI prints
+`Done in 45ms`, so `check_tutorial.py` normalizes exactly that line to
+`Done in 0ms`. RED: `python3 scripts/test_check_tutorial.py Blocks` exited
+1 (`FAIL: test_normalization_covers_the_tailwind_build_time_only_on_its_own_line`);
+GREEN: exit 0, 6 tests. Appendix 90's `cargo test --test adapter_http`
+output now shows 20 tests, since that file gained the stylesheet test.
+
+The READMEs and AGENTS.md give the `npm ci` / `npm run css` / `cargo run`
+recipe, the `@theme` override, the drift gate, the route and the notices;
+the quickstart blocks are unchanged. In a clone at the commit that edited
+`bg-white` without `npm run css`, `cargo test --test adapter_site --
+every_template_class` exited 101 with `no rule for bg-rose-100`.

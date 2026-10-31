@@ -156,6 +156,9 @@ roles cannot be configured.
 
 - `GET /projects?q=` (Basic): an HTML list with a search form.
 - `GET /api/projects?q=` (Bearer): JSON `{"projects": [{"id", "name"}]}`.
+- `GET /_senu/ui.css` (no credentials, also under `senu site`): the
+  stylesheet, `text/css`, served from memory. `/_senu/` is reserved for
+  Senu; every other path below it is 404.
 - MCP tool `list_projects`: `readOnlyHint: true`, optional string `q`, no
   other fields. Results come back as `structuredContent` and as JSON text;
   operation errors are `isError` results with `{"error": code}`. An unknown
@@ -189,6 +192,38 @@ filter or turns escaping off. The one exception is the article body, which
 is `TrustedHtml` from the Markdown policy: the same test requires exactly
 one `HtmlSafe` impl in `src/`, on that type.
 
+## Look: Tailwind CSS and Typography
+
+The pages use [Tailwind CSS](https://tailwindcss.com/) utility classes in
+`templates/*.html` and the official Typography plugin's `prose` styles for
+article text. Change the look by editing classes in a template, or theme
+variables for every page in `assets/ui.css`, the only CSS source:
+
+```css
+@theme {
+  --font-sans: "Trebuchet MS", "Noto Sans JP", sans-serif;
+}
+```
+
+Tailwind writes rules only for the classes it finds in the templates, into
+`assets/ui.generated.css`. That file is committed and built into the
+binary, so Cargo alone builds and runs Senu; Node is needed only to change
+the look. With Node 24 and its npm:
+
+```sh
+npm ci            # once: installs the exact versions in package-lock.json
+npm run css       # after changing classes or the theme
+cargo run -- site # or serve, as before
+```
+
+Commit the source together with `assets/ui.generated.css`. CI runs
+`npm ci`, `npm run css` and `git diff --exit-code -- assets/ui.generated.css`,
+and `cargo test` fails when a template class has no rule. Typography keeps
+its own colours, so `@theme` does not change link colours inside articles;
+a `prose-a:` class on `<main>` in `templates/site_base.html` does. The
+licenses of both packages are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt),
+and the stylesheet keeps their notices.
+
 ## Development
 
 ```sh
@@ -207,8 +242,11 @@ own tests of the tutorial checker and of the site snapshot; both need
 the course in English and then in Japanese, each in a temporary copy of the
 last commit, and leaves the working tree unchanged; commit your changes
 first, because it refuses to run while tracked files differ from HEAD.
+The course's optional last section runs `npm ci`, so `check_tutorial.py`
+also needs Node 24, npm and access to the npm registry.
 `snapshot_site.py` needs a new or empty directory; it starts `senu site`,
-saves every page as a static file with relative links and checks them. CI
+saves every page as a static file with relative links, the stylesheet and
+the notices, and checks them. CI
 runs the same commands on GitHub-hosted Ubuntu and uploads the snapshot as an
 artifact; nothing is deployed. Read
 [the specs](docs/specs/), [the development log](docs/development.md) and
