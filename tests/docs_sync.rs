@@ -1,7 +1,7 @@
 //! DOC-2: both READMEs embed `scripts/quickstart.sh` byte for byte. NAV-1
 //! (spec 0003): both languages have every chapter of the course, each
 //! chapter links to its translation, and the two languages run the same
-//! checked commands.
+//! checked commands. BLD-1 (spec 0004): the CSS toolchain is pinned.
 
 use senu::content::EMBEDDED;
 use senu::site::Site;
@@ -134,4 +134,64 @@ fn both_languages_run_the_same_checked_blocks() {
             "{chapter}: commands, patches and Rust files"
         );
     }
+}
+
+/// Spec 0004, §3 and BLD-1: exact versions, one script, and a lockfile
+/// whose every downloaded package comes from the npm registry with an SRI
+/// hash. An entry npm marks `inBundle` has neither, because it ships inside
+/// the tarball of its bundling ancestor, whose own hash is checked here.
+#[test]
+fn the_css_toolchain_is_pinned_to_the_npm_registry() {
+    let json = |path: &str| serde_json::from_str::<serde_json::Value>(&read(path)).unwrap();
+    let pinned = [
+        ("@tailwindcss/cli", "4.3.3"),
+        ("@tailwindcss/typography", "0.5.20"),
+        ("tailwindcss", "4.3.3"),
+    ];
+    let package = json("package.json");
+    assert_eq!(package["private"], true);
+    assert_eq!(
+        package["scripts"],
+        serde_json::json!({"css": "tailwindcss -i assets/ui.css -o assets/ui.generated.css --minify"})
+    );
+    assert_eq!(
+        package["devDependencies"],
+        serde_json::Value::Object(
+            pinned
+                .iter()
+                .map(|(name, version)| (name.to_string(), (*version).into()))
+                .collect()
+        )
+    );
+    let lock = json("package-lock.json");
+    assert_eq!(lock["lockfileVersion"], 3);
+    let packages = lock["packages"].as_object().unwrap();
+    let mut counts = (0, 0);
+    for (path, entry) in packages.iter().filter(|(path, _)| !path.is_empty()) {
+        if entry["inBundle"] == true {
+            let (ancestor, _) = path.rsplit_once("/node_modules/").unwrap();
+            assert_ne!(packages[ancestor]["inBundle"], true, "{path}");
+            assert!(packages[ancestor]["integrity"].is_string(), "{path}");
+            counts.1 += 1;
+            continue;
+        }
+        counts.0 += 1;
+        let resolved = entry["resolved"].as_str().unwrap_or("");
+        assert!(
+            resolved.starts_with("https://registry.npmjs.org/"),
+            "{path}: {resolved}"
+        );
+        let integrity = entry["integrity"].as_str().unwrap_or("");
+        assert!(integrity.starts_with("sha512-"), "{path}: {integrity}");
+    }
+    // Recorded in docs/development.md: registry tarballs and bundled entries.
+    assert_eq!(counts, (70, 6));
+    let notices = read("THIRD-PARTY-NOTICES.txt");
+    for (name, version) in pinned {
+        let entry = &packages[&format!("node_modules/{name}")];
+        assert_eq!(entry["version"], version, "{name}");
+        assert_eq!(entry["license"], "MIT", "{name}");
+        assert!(notices.contains(&format!("{name} {version}")), "{name}");
+    }
+    assert_eq!(notices.matches("MIT License").count(), 2);
 }

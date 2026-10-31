@@ -7,6 +7,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 
 use support::process::{self, get, http};
+use support::{STYLESHEET, committed_stylesheet};
 
 const LISTENING: &str = "senu: listening on http://";
 const CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
@@ -70,6 +71,16 @@ fn site_serves_the_embedded_articles_from_an_empty_directory() {
         let with_credentials = fetch(target, &[format!("Authorization: Bearer {SENTINEL}")]);
         assert_eq!(with_credentials.body, page.body, "{target}");
     }
+    let stylesheet = fetch(STYLESHEET, &[]);
+    assert_eq!(stylesheet.status, 200);
+    assert_eq!(
+        stylesheet.header("content-type"),
+        Some("text/css; charset=utf-8")
+    );
+    assert!(
+        stylesheet.body == committed_stylesheet(),
+        "not the committed stylesheet"
+    );
     for target in [
         "/projects",
         "/api/projects",

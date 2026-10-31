@@ -9,6 +9,9 @@
 //! `senu site` uses a separate router with the same size limits and
 //! response headers but no authentication: one handler looks the raw path
 //! up in the pre-rendered pages (spec 0003, §6).
+//!
+//! Both routers also serve the embedded stylesheet at one exact path under
+//! the reserved prefix `/_senu/`, without credentials (spec 0004, §4).
 
 use std::sync::Arc;
 
@@ -34,6 +37,11 @@ const BASIC_CHALLENGE: &str = "Basic realm=\"senu\", charset=\"UTF-8\"";
 const BEARER_CHALLENGE: &str = "Bearer realm=\"senu\"";
 const HTML_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 const SITE_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
+
+/// The only path of the stylesheet, which `npm run css` compiles from
+/// `assets/ui.css` and Cargo embeds, so nothing is read at run time.
+const STYLESHEET_PATH: &str = "/_senu/ui.css";
+const STYLESHEET: &str = include_str!("../assets/ui.generated.css");
 
 /// Everything the router needs. Principals are chosen by server code and
 /// bound to one credential each.
@@ -85,6 +93,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/projects", any(html_projects))
         .route("/api/projects", any(api_projects))
+        .route(STYLESHEET_PATH, any(stylesheet))
         .fallback(not_found)
         .with_state(Arc::new(state))
         .layer(middleware::from_fn(limits))
@@ -97,6 +106,7 @@ pub fn router(state: AppState) -> Router {
 /// exist here.
 pub fn site_router(site: Site) -> Router {
     Router::new()
+        .route(STYLESHEET_PATH, any(stylesheet))
         .fallback(site_page)
         .with_state(Arc::new(site))
         .layer(middleware::from_fn(site_limits))
@@ -270,6 +280,18 @@ async fn site_page(State(site): State<Arc<Site>>, request: Request) -> Response 
     (
         [(header::CONTENT_SECURITY_POLICY, SITE_CSP)],
         Html(page.to_owned()),
+    )
+        .into_response()
+}
+
+/// The embedded stylesheet. It holds no data, so no credential is read.
+async fn stylesheet(method: Method) -> Response {
+    if method != Method::GET {
+        return Surface::Html.error(HttpError::MethodNotAllowed);
+    }
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        STYLESHEET,
     )
         .into_response()
 }

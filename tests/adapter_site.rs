@@ -2,6 +2,8 @@
 //! router is called in-process with `oneshot`, and the startup function is
 //! given invalid content.
 
+mod support;
+
 use std::net::TcpListener;
 use std::process::ExitCode;
 
@@ -12,6 +14,7 @@ use axum::http::{HeaderMap, Request, StatusCode, Uri, header};
 use senu::config::site_config;
 use senu::http::site_router;
 use senu::site::Site;
+use support::{NOT_THE_STYLESHEET, STYLESHEET, committed_stylesheet};
 use tower::ServiceExt as _;
 
 const FILES: [(&str, &str); 3] = [
@@ -174,6 +177,67 @@ async fn other_methods_and_oversized_requests_are_refused_as_plain_text() {
         header(&headers, header::CONTENT_TYPE),
         Some("text/plain; charset=utf-8")
     );
+}
+
+#[tokio::test]
+async fn the_stylesheet_is_served_from_memory_at_one_exact_path() {
+    let css = committed_stylesheet();
+    for (target, headers) in [
+        (STYLESHEET, &[][..]),
+        ("/_senu/ui.css?v=1", &[]),
+        (STYLESHEET, &[("authorization", "Bearer zz-token")]),
+    ] {
+        let (status, response, body) = send("GET", target, headers).await;
+        assert_eq!(status, StatusCode::OK, "{target}");
+        assert!(body == css, "{target}: not the committed stylesheet");
+        assert_eq!(
+            header(&response, header::CONTENT_TYPE),
+            Some("text/css; charset=utf-8")
+        );
+        assert_eq!(header(&response, header::CACHE_CONTROL), Some("no-store"));
+        assert_eq!(
+            header(&response, header::X_CONTENT_TYPE_OPTIONS),
+            Some("nosniff")
+        );
+        assert_eq!(header(&response, header::WWW_AUTHENTICATE), None);
+    }
+    for method in ["HEAD", "POST", "PUT", "DELETE", "OPTIONS"] {
+        let (status, headers, _) = send(method, STYLESHEET, &[]).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{method}");
+        assert_eq!(header(&headers, header::ALLOW), Some("GET"), "{method}");
+    }
+    let (status, _, _) = send("GET", STYLESHEET, &[("content-length", "5")]).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    let long: &'static str =
+        Box::leak(format!("{STYLESHEET}?{}", "a".repeat(2048)).into_boxed_str());
+    assert_eq!(send("GET", long, &[]).await.0, StatusCode::URI_TOO_LONG);
+    for target in NOT_THE_STYLESHEET {
+        let (status, _, body) = send("GET", target, &[]).await;
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::NOT_FOUND, "Not Found"),
+            "{target}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_stylesheet_carries_both_notices_and_no_external_reference() {
+    let (_, _, css) = send("GET", STYLESHEET, &[]).await;
+    let mut rest = css.clone();
+    for notice in [
+        "/*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */",
+        "/*! @tailwindcss/typography v0.5.20 | MIT License | https://github.com/tailwindlabs/tailwindcss-typography */",
+    ] {
+        assert_eq!(css.matches(notice).count(), 1, "{notice}");
+        rest = rest.replace(notice, "");
+    }
+    for external in ["@import", "url(", "://"] {
+        assert!(
+            !rest.contains(external),
+            "the stylesheet contains {external}"
+        );
+    }
 }
 
 #[test]

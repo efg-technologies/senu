@@ -1,0 +1,13 @@
+/*! @tailwindcss/typography v0.5.20 | MIT License | https://github.com/tailwindlabs/tailwindcss-typography */
+/* The only CSS source. Tailwind writes rules for the classes it finds in
+   templates/*.html; run `npm run css` after changing them or the theme,
+   and commit this file together with assets/ui.generated.css. */
+@import "tailwindcss" source(none);
+@source "../templates/*.html";
+@plugin "@tailwindcss/typography";
+
+/* Change the look here with theme variables, for example a font stack. */
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
+}

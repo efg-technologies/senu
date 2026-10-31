@@ -4,7 +4,8 @@ mod support;
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::{HeaderMap, Request, StatusCode, header};
+use axum::http::uri::PathAndQuery;
+use axum::http::{HeaderMap, Request, StatusCode, Uri, header};
 use senu::catalogue::{Catalogue, TenantId};
 use senu::config::serve_config;
 use senu::http::{AppState, MAX_TARGET_BYTES, router};
@@ -400,6 +401,58 @@ async fn request_bodies_return_413_before_authentication() {
         .body(Body::empty())
         .unwrap();
     assert_eq!(send(&app, empty).await.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn the_stylesheet_needs_no_credentials_and_only_get() {
+    let app = app();
+    let css = committed_stylesheet();
+    let wrong = basic(WEB_USER, API_TOKEN);
+    for request in [
+        get(STYLESHEET, None),
+        get("/_senu/ui.css?q=%3Cb%3E", None),
+        get(STYLESHEET, Some(&wrong)),
+        api_get(STYLESHEET),
+    ] {
+        let reply = send(&app, request).await;
+        assert_eq!(reply.status, StatusCode::OK);
+        assert!(reply.body == css, "not the committed stylesheet");
+        assert_eq!(
+            reply.header(header::CONTENT_TYPE),
+            "text/css; charset=utf-8"
+        );
+        assert_eq!(reply.header(header::CACHE_CONTROL), "no-store");
+        assert_eq!(reply.header(header::X_CONTENT_TYPE_OPTIONS), "nosniff");
+        assert!(!reply.headers.contains_key(header::WWW_AUTHENTICATE));
+    }
+    for method in ["HEAD", "POST", "PUT", "DELETE", "OPTIONS"] {
+        let request = Request::builder()
+            .method(method)
+            .uri(STYLESHEET)
+            .body(Body::empty())
+            .unwrap();
+        let reply = send(&app, request).await;
+        assert_eq!(reply.status, StatusCode::METHOD_NOT_ALLOWED, "{method}");
+        assert_eq!(reply.header(header::ALLOW), "GET", "{method}");
+    }
+    let with_body = Request::builder()
+        .uri(STYLESHEET)
+        .header(header::CONTENT_LENGTH, "1")
+        .body(Body::from("x"))
+        .unwrap();
+    let reply = send(&app, with_body).await;
+    assert_text_error(&reply, StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large");
+    let long = format!("{STYLESHEET}?{}", "a".repeat(MAX_TARGET_BYTES));
+    let reply = send(&app, get(&long, None)).await;
+    assert_text_error(&reply, StatusCode::URI_TOO_LONG, "URI Too Long");
+    for target in NOT_THE_STYLESHEET {
+        let request = Request::builder()
+            .uri(Uri::from(PathAndQuery::from_static(target)))
+            .body(Body::empty())
+            .unwrap();
+        let reply = send(&app, request).await;
+        assert_text_error(&reply, StatusCode::NOT_FOUND, "Not Found");
+    }
 }
 
 #[tokio::test]

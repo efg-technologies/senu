@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "scripts": {
+    "css": "tailwindcss -i assets/ui.css -o assets/ui.generated.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "@tailwindcss/typography": "0.5.20",
+    "tailwindcss": "4.3.3"
+  }
+}

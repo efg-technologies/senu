@@ -955,3 +955,37 @@ its text. The rendered pages differ only in attribute order.
 | `cargo fmt --check` | 0 | |
 | `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
 | `cargo test --locked -- --test-threads=2` | 0 | 177 passed: unit 127, adapter 34, E2E 7, docs sync 4, quickstart checker 3, tutorial checker 2 |
+
+### Toolchain and stylesheet route (§3, §4)
+
+`package.json` pins `tailwindcss` 4.3.3, `@tailwindcss/cli` 4.3.3 and
+`@tailwindcss/typography` 0.5.20; their lockfile hashes equal the
+registry metadata checked for the spec. `npm install --package-lock-only
+--ignore-scripts` wrote a version 3 lockfile with 76 dependency entries:
+70 registry tarballs, each with a registry.npmjs.org `resolved` URL and a
+`sha512` integrity, and 6 entries marked `inBundle`, nested inside
+`@tailwindcss/oxide-wasm32-wasi`, whose own tarball hash covers them.
+`tests/docs_sync.rs` checks this. `npm ci` (npm 11.6.2, Node 24.11.1)
+installed 40 packages, 34 MB; one, `@parcel/watcher`, has an install
+script, which builds from source only when `npm_config_build_from_source`
+is `true`. `npm audit signatures`: "40 packages have verified registry
+signatures", "11 packages have verified attestations". `npm audit` exits 1
+with 2 moderate findings, both GHSA-rj75-hqrm-r3gf: `postcss-selector-parser`
+below 6.1.5, required by `@tailwindcss/typography` 0.5.20; its suggested fix
+is a downgrade to typography 0.5.4. It runs only at build time, on the
+stylesheet in `assets/`, and none of its code reaches the binary.
+
+The CLI keeps both `/*!` notices in the minified output; `://` occurs only
+in them. `THIRD-PARTY-NOTICES.txt` holds both LICENSE files, verbatim.
+At this commit the generated file is built from the old templates.
+
+RED, before the route existed:
+`cargo test --locked --no-fail-fast --test adapter_site --test adapter_http --test e2e_site -- stylesheet site_serves_the_embedded`
+exited 101: all four tests failed with `left: 404` / `right: 200`, and the
+notice test with `left: 0` / `right: 1`. GREEN, with the route: exit 0, 4
+passed.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
+| `cargo test --locked -- --test-threads=2` | 0 | 181 passed (177 + 4 new: two site adapter tests, one HTTP adapter test, one docs sync test) |

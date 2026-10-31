@@ -13,6 +13,44 @@ pub const MCP_TOKEN: &str = "sentinel-mcp-token-9K";
 /// Every configured secret. None may ever appear in output.
 pub const SECRETS: [&str; 3] = [WEB_PASSWORD, API_TOKEN, MCP_TOKEN];
 
+/// The one stylesheet route of spec 0004, §4.
+pub const STYLESHEET: &str = "/_senu/ui.css";
+
+/// Near misses of `STYLESHEET`, all 404 on both routers: a trailing slash,
+/// other case, percent-encoding, dot segments and other names.
+pub const NOT_THE_STYLESHEET: [&str; 21] = [
+    "/_senu/ui.css/",
+    "/_senu/UI.css",
+    "/_SENU/ui.css",
+    "/_senu/ui.CSS",
+    "/_senu/ui%2Ecss",
+    "/_senu/ui%2ecss",
+    "/%5Fsenu/ui.css",
+    "/_senu%2Fui.css",
+    "/_senu/./ui.css",
+    "/_senu/../_senu/ui.css",
+    "/x/../_senu/ui.css",
+    "//_senu/ui.css",
+    "/_senu/ui.css;x",
+    "/_senu",
+    "/_senu/",
+    "/_senu/ui.generated.css",
+    "/_senu/ui.js",
+    "/_senu/x",
+    "/assets/ui.css",
+    "/assets/ui.generated.css",
+    "/ui.css",
+];
+
+/// The committed stylesheet, which both routers serve byte for byte.
+pub fn committed_stylesheet() -> String {
+    std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/ui.generated.css"
+    ))
+    .expect("assets/ui.generated.css")
+}
+
 pub fn env(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
     pairs
         .iter()
