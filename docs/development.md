@@ -1196,3 +1196,22 @@ requests, Firefox resource entries). Japanese home and first-page views
 on mobile were inspected visually. Not run: actual browser zoom, and the
 812 and 568 pixel heights that BRW-1 names; the coordinator will rerun the
 check at the final head.
+
+### Final checks of stage 1 (TST-1, local)
+
+Run on 2564e9e, the last commit before this log entry, through the
+bounded wrapper; the tree was unchanged before and after.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
+| `cargo test --locked -- --test-threads=2` | 0 | 184 passed: the 177 of 1163895 plus 7 (unit 127, adapter 40, E2E 7, docs sync 5, quickstart checker 3, tutorial checker 2) |
+| `scripts/quickstart.sh` | 0 | |
+| `python3 scripts/test_check_tutorial.py` | 0 | 20 tests |
+| `python3 scripts/test_snapshot_site.py` | 0 | 4 tests |
+| `python3 scripts/snapshot_site.py <new dir>` | 0 | `ok: 22 pages, the stylesheet and THIRD-PARTY-NOTICES.txt saved` |
+| `python3 scripts/check_tutorial.py` | 0 | English then Japanese, 100 `ok:` block lines each; the clone and Node blocks listed as not run (manual); tree unchanged |
+
+Not run here: CI on GitHub, the final browser check of BRW-1 and actual
+browser zoom.
