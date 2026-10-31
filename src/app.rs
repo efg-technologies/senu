@@ -70,7 +70,8 @@ fn serve(config: ServeConfig) -> ExitCode {
 
 /// Runs `senu site` over `files`, the embedded articles in production. The
 /// articles are checked before anything is bound, so bad content exits with
-/// status 2 and the first error, in path order, on stderr.
+/// status 2. All names are checked first, then each article's content; errors
+/// follow path order within each phase and are written to stderr.
 pub fn site(config: &SiteConfig, files: &[(&str, &str)]) -> ExitCode {
     match Site::load(files) {
         Ok(site) => listen(config.bind, http::site_router(site)),
