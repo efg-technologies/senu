@@ -10,16 +10,21 @@ unless each one answers 200 with HTML. Pages are saved as index.html,
 attribute of a real start tag becomes the relative path of the saved file,
 while text, code, entities and comments stay byte for byte, so that an
 escaped example such as `&lt;a href="/x"&gt;` is shown as served. The
-directory works from
+stylesheet, /_senu/ui.css, is fetched as text/css and saved byte for byte
+as _senu/ui.css (spec 0004, §6), and THIRD-PARTY-NOTICES.txt is copied
+next to the pages. The directory works from
 any plain static file server on localhost, or straight from disk. Finally,
 every relative href must name a saved file and every #fragment an id in
-the page it points to. The server is stopped as Ctrl+C would. Nothing is
-deployed anywhere. Standard library only.
+the page it points to, the saved stylesheet must equal the served one and
+carry both package notices, and the notices file must exist. The server is
+stopped as Ctrl+C would. Nothing is deployed anywhere. Standard library
+only.
 """
 
 import html.parser
 import posixpath
 import re
+import shutil
 import signal
 import sys
 import urllib.error
@@ -31,6 +36,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_tutorial import ROOT, CheckFailed, clean_env, start_server, stop  # noqa: E402
 
 START = ("/", "/ja/")
+STYLESHEET = "/_senu/ui.css"
+NOTICES = "THIRD-PARTY-NOTICES.txt"
+PACKAGE_NOTICES = (b"/*! tailwindcss v", b"/*! @tailwindcss/typography v")
 HREF_ATTRIBUTE = re.compile(r'\shref="([^"]*)"')
 
 
@@ -74,7 +82,10 @@ def rewrite(route, text):
 
 
 def saved_as(route):
-    """`/` -> index.html, `/x` -> x.html, `/ja/` -> ja/index.html."""
+    """`/` -> index.html, `/x` -> x.html, `/ja/` -> ja/index.html, and the
+    stylesheet keeps its name."""
+    if route == STYLESHEET:
+        return route[1:]
     if route.endswith("/"):
         return route[1:] + "index.html"
     return route[1:] + ".html"
@@ -85,13 +96,14 @@ def relative(page, route):
     return posixpath.relpath(saved_as(route), base)
 
 
-def fetch(opener, base, route, referrer):
+def fetch(opener, base, route, referrer, want="text/html"):
+    """The body of `route`, which must answer 200 with the type `want`."""
     try:
         with opener.open(base + route, timeout=30) as response:
             kind = response.headers.get("content-type", "")
-            if response.status != 200 or not kind.startswith("text/html"):
+            if response.status != 200 or not kind.startswith(want):
                 raise CheckFailed(f"{route} answered {response.status} {kind}")
-            return response.read().decode("utf-8")
+            return response.read()
     except urllib.error.HTTPError as err:
         raise CheckFailed(f"{referrer} links to {route}, which answers {err.code}") from None
 
@@ -103,24 +115,41 @@ def crawl(base):
         route, referrer = queue.pop(0)
         if route in pages:
             continue
-        pages[route] = fetch(opener, base, route, referrer)
+        pages[route] = fetch(opener, base, route, referrer).decode("utf-8")
         for href in Links(pages[route]).hrefs:
-            if href.startswith("/") and not href.startswith("//"):
+            if href.startswith("/") and not href.startswith("//") and href != STYLESHEET:
                 queue.append((href, route))
-    return pages
+    return pages, fetch(opener, base, STYLESHEET, "the snapshot", want="text/css")
 
 
-def save(out, pages):
-    """Writes each page with its internal links made relative."""
+def save(out, pages, stylesheet):
+    """Writes each page with its internal links made relative, the
+    stylesheet as served, and a copy of the notices."""
     for route, text in pages.items():
         path = out / saved_as(route)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(rewrite(route, text), encoding="utf-8")
+    (out / "_senu").mkdir(exist_ok=True)
+    (out / saved_as(STYLESHEET)).write_bytes(stylesheet)
+    shutil.copyfile(ROOT / NOTICES, out / NOTICES)
 
 
-def verify(out):
-    """Every relative link names a saved file, and every fragment an id."""
+def verify(out, served):
+    """The stylesheet equals the `served` bytes and carries both package
+    notices, the notices file exists, every relative link names a saved
+    file, and every fragment an id. Returns the number of pages."""
+    css = out / saved_as(STYLESHEET)
+    if not css.is_file():
+        raise CheckFailed(f"the stylesheet {saved_as(STYLESHEET)} was not saved")
+    if css.read_bytes() != served:
+        raise CheckFailed("the saved stylesheet differs from the served one")
+    for notice in PACKAGE_NOTICES:
+        if notice not in served:
+            raise CheckFailed(f"the stylesheet lacks the notice {notice.decode()}")
+    if not (out / NOTICES).is_file():
+        raise CheckFailed(f"the notices file {NOTICES} was not saved")
     files = {path: Links(path.read_text(encoding="utf-8")) for path in out.rglob("*.html")}
+    files[css.resolve()] = Links("")
     for path, links in files.items():
         for href in links.hrefs:
             if href.startswith("https://"):
@@ -133,7 +162,7 @@ def verify(out):
                 raise CheckFailed(f"{path.relative_to(out)} links to missing {href}")
             if fragment and fragment not in files[target_path].ids:
                 raise CheckFailed(f"{path.relative_to(out)} links to a missing fragment: {href}")
-    return len(files)
+    return len(files) - 1
 
 
 def main(argv):
@@ -148,12 +177,13 @@ def main(argv):
             "cargo run --quiet --locked -- site\n", ROOT, clean_env()
         )
         try:
-            pages = crawl(f"http://{address}")
+            pages, stylesheet = crawl(f"http://{address}")
         finally:
             stop(process, first=signal.SIGINT)
             log.close()
-        save(out, pages)
-        print(f"ok: {verify(out.resolve())} pages saved in {out}")
+        save(out, pages, stylesheet)
+        count = verify(out.resolve(), stylesheet)
+        print(f"ok: {count} pages, the stylesheet and {NOTICES} saved in {out}")
         return 0
     except CheckFailed as err:
         print(f"snapshot_site: {err}", file=sys.stderr)

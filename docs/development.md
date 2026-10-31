@@ -989,3 +989,24 @@ passed.
 |---|---|---|
 | `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
 | `cargo test --locked -- --test-threads=2` | 0 | 181 passed (177 + 4 new: two site adapter tests, one HTTP adapter test, one docs sync test) |
+
+### Snapshot with the stylesheet and notices (§6, SNAP-1)
+
+`scripts/snapshot_site.py` fetches `/_senu/ui.css` as `text/css`, saves it
+byte for byte as `_senu/ui.css`, never queues it as a page, rewrites each
+real `<link href>` like any other internal href, and copies
+`THIRD-PARTY-NOTICES.txt`. Verification refuses a missing or changed
+stylesheet, a missing notices file, and a stylesheet without either
+package notice.
+
+RED: `python3 scripts/test_snapshot_site.py` exited 1, 4 errors
+(`save() takes 2 positional arguments but 3 were given`). GREEN: exit 0,
+4 tests, among them the rewritten `<link>` (`_senu/ui.css` from the root,
+`../_senu/ui.css` from `ja/`), the missing-stylesheet and missing-notice
+cases.
+
+| Command | Exit | Result |
+|---|---|---|
+| `python3 scripts/test_check_tutorial.py` | 0 | |
+| `cargo test --locked --test tutorial_checker` | 0 | 2 passed |
+| `python3 scripts/snapshot_site.py <new dir>` | 0 | `ok: 22 pages, the stylesheet and THIRD-PARTY-NOTICES.txt saved`; 24 files; both files equal the committed ones |
