@@ -1,18 +1,8 @@
-<%# Project list page. Askama HTML-encodes every expression in this file. The classes are Tailwind CSS utilities and Typography's prose; run `npm run css` after changing them. %>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Projects · Senu</title>
-<link rel="stylesheet" href="/_senu/ui.css">
-</head>
-<body class="prose mx-auto px-4 py-8 font-sans wrap-anywhere **:focus-visible:outline-3 **:focus-visible:outline-offset-2 **:focus-visible:outline-blue-700">
-<header>
-<p role="note" class="rounded-md border border-yellow-600 bg-yellow-50 px-3 py-2"><strong>Local demo, not production.</strong> Senu is an experimental seed that lists fixed sample data.</p>
-<h1>Projects</h1>
-</header>
-<main>
+<%# Project list page. Askama HTML-encodes every expression in this file. The classes are Tailwind CSS utilities; run `npm run css` after changing them. %>
+<%! extends "serve_base.html" %>
+<%! block title %>Projects<%! endblock %>
+<%! block heading %><h1>Projects</h1><%! endblock %>
+<%! block main -%>
 <form method="get" action="/projects" role="search" class="my-4 flex flex-wrap items-center gap-2">
 <label for="q">Search projects by name</label>
 <input id="q" name="q" type="search" value="<%= q %>" class="rounded border border-gray-500 px-2 py-1">
@@ -27,6 +17,4 @@
 <%! endfor %>
 </ul>
 <%! endif %>
-</main>
-</body>
-</html>
+<%!- endblock %>
