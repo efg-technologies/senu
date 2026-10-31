@@ -1,6 +1,6 @@
 # Senu Spec 0005: The Application Developer Flow and Declared Operations
 
-Status: proposed, 2026-10-31. Stage 2 of two; it starts only after spec 0004 is done. It amends spec 0001 where §9 says so. Evidence belongs in `docs/development.md`, CI runs and PRs, not in this file.
+Status: implemented, 2026-10-31 (evidence in `docs/development.md`). Stage 2 of two; it starts only after spec 0004 is done. It amends spec 0001 where §9 says so. Evidence belongs in `docs/development.md`, CI runs and PRs, not in this file.
 
 ## 1. Goal and boundaries
 

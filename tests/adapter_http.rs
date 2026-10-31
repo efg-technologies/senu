@@ -554,9 +554,23 @@ fn templates_and_configuration_never_disable_escaping() {
     }
     assert!(templates > 0);
 
-    for entry in std::fs::read_dir(format!("{root}/src")).unwrap() {
-        let path = entry.unwrap().path();
-        let text = std::fs::read_to_string(&path).unwrap();
+    // Every Rust file under src/, including the application in src/demo/.
+    let mut sources = Vec::new();
+    let mut directories = vec![std::path::PathBuf::from(format!("{root}/src"))];
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                directories.push(path);
+            } else {
+                sources.push(path);
+            }
+        }
+    }
+    assert!(sources.iter().any(|path| path.ends_with("demo/mod.rs")));
+
+    for path in &sources {
+        let text = std::fs::read_to_string(path).unwrap();
         for line in text.lines().filter(|l| l.contains("#[template(")) {
             assert!(!line.contains("escape"), "{path:?}: {line}");
             assert!(
@@ -574,10 +588,9 @@ fn templates_and_configuration_never_disable_escaping() {
     // Markdown policy's output. Exactly one `HtmlSafe` impl exists in src/,
     // on that type, and its field is private; nothing else opts out.
     let mut boundary = Vec::new();
-    for entry in std::fs::read_dir(format!("{root}/src")).unwrap() {
-        let path = entry.unwrap().path();
+    for path in &sources {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let text = std::fs::read_to_string(&path).unwrap();
+        let text = std::fs::read_to_string(path).unwrap();
         for line in text.lines().map(str::trim) {
             for forbidden in ["MaybeSafe", "filters::Safe", "|safe", "| safe"] {
                 assert!(!line.contains(forbidden), "{name}: {line}");

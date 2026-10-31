@@ -4,22 +4,24 @@
 
 **Each Rust operation, served as a web page, a JSON API and an MCP tool.**
 
-Senu is an experimental Rust seed. A single pure function, `list_projects`,
-is shared by three transports: an HTML page rendered with
+Senu is an experimental Rust seed. Each pure function, such as
+`list_projects` or `get_project`, is declared once and shared by three
+transports: an HTML page rendered with
 [Askama](https://askama.rs/), a JSON API on [Axum](https://docs.rs/axum), and
 an opt-in [MCP](https://modelcontextprotocol.io/) tool over stdio built with
 the official [`rmcp`](https://rust.sdk.modelcontextprotocol.io/) SDK. Each
 transport checks its own credential, picks a principal on the server side and
 calls the same function, so all three return the same projects in the same
-order. A test checks that. Senu also serves a small site of Markdown
+order. Tests check that. Senu also serves a small site of Markdown
 articles, which holds a beginner course.
 
 ## Aims (MCS): minimal, consistent, spec-driven
 
 - **Minimal:** application developers should own as little code,
   configuration and duplication as possible. Today a new article is one
-  Markdown file, and a change of look is classes in a template plus
-  `npm run css`.
+  Markdown file, a change of look is classes in a template plus
+  `npm run css`, and a new operation is a declaration plus one line per
+  route and tool (see [Adding an operation](#adding-an-operation)).
 - **Consistent:** one set of conventions for people and AI tools, kept by
   `rustfmt`, `clippy -D warnings` and, for the stylesheet, a CI drift gate.
   These check form; they do not prove that the business rules are right.
@@ -30,9 +32,11 @@ articles, which holds a beginner course.
 Rust is the foundation for its memory and type safety and its speed, but
 the language alone does not make a program secure or fast. Newer tools,
 such as Tailwind CSS here, are adopted where they serve these aims. Done:
-the shared operation on three transports, the article site and the
-Tailwind UI (spec 0004). Planned, not built: operations declared once for
-all transports ([spec 0005](docs/specs/0005-app-developer-flow.md)).
+operations declared once and exposed on three transports only through
+explicit route and tool lists
+([spec 0005](docs/specs/0005-app-developer-flow.md)), the article site and
+the Tailwind UI (spec 0004). Not planned here: a library or starter kit
+for other crates; adopters fork the seed.
 
 ## New to Rust? Start with the course
 
@@ -200,6 +204,55 @@ Every other path returns 404 and every other method 405. Request bodies
 query string are never read. Responses carry `Cache-Control: no-store` and
 `X-Content-Type-Options: nosniff`, and errors never repeat input or secrets.
 
+## Adding an operation
+
+Senu is a seed that you fork, not a library. The application is in
+`src/demo/`; Senu's adapters are in `src/http.rs` and `src/mcp.rs`.
+
+| The application owns | Senu owns |
+|---|---|
+| state, tenants and principals; `Permission` constants; each operation's function, argument struct, result, error codes and `Operation` declaration; views and templates; the route table and the tool list; business tests | Basic and Bearer checks, limits, the method check, the permission before the parameter envelope, error mapping, the CSP and headers, JSON Schemas from the parameters, route and tool validation at startup, and the contract tests |
+
+1. Add `src/demo/<name>.rs` with a private function
+   `fn(&S, &Principal, &Args) -> Result<T, OpError>` that decodes with
+   `operation::decode` into a `#[serde(deny_unknown_fields)]` struct, and
+   a `pub const OPERATION: Operation<S, T>` with its name, description,
+   permission and string parameters. Errors of its own are
+   `OpError::Invalid { code, phrase }` (400) or `OpError::NotFound`.
+2. List it in `src/demo/mod.rs`: `.html(path, &OPERATION, view)` or
+   `.api("/api/…", &OPERATION)` in `endpoints()`, and
+   `mcp::tool(&OPERATION)` in `tools()`. An operation that is declared but
+   not listed is not exposed.
+3. Write its business tests next to it, add one succeeding sample to
+   `demo_subject` in `tests/contract.rs`, which then runs CT-1 to CT-7
+   over it, and list the routes and the tool in both READMEs, which
+   `tests/docs_sync.rs` checks.
+
+Limits: parameters are strings and paths are exact. Anything else goes
+through `.custom(path, handler)`, which gets the size limits and response
+headers but no authentication, method check or CSP; the handler does those
+itself, and the contract tests do not cover it. `Operation::call` checks
+the declared permission before the envelope and the envelope before the
+function; any further policy inside the function runs after the envelope.
+An invalid route table or tool list makes `senu serve` or `senu mcp` exit
+with status 2 before it binds or reads stdin.
+
+Migration (spec 0005, §9): routes, bodies, headers, schemas and errors are
+unchanged. `Permission` was a two-variant enum and is now an open newtype.
+`demo::LIST_PROJECTS` and `demo::VIEW_PROJECT` are the new names, and the
+qualified `Permission::ListProjects` and `Permission::ViewProject` still work
+as associated constants. An exhaustive `match` over the two old variants now
+needs a `_` arm, and `use Permission::{ListProjects, ViewProject}` no longer
+compiles, because associated constants cannot be imported: import
+`demo::{LIST_PROJECTS, VIEW_PROJECT}` or write the qualified paths.
+`OpError` and `HttpError` keep
+`InvalidSearch` and `InvalidId` and gain `Invalid { code, phrase }`, so an
+exhaustive `match` needs a new arm. `AppState` and `McpServer` take a state
+type that defaults to `Catalogue`. `http::router`, `AppState::new`,
+`with_principals`, `McpServer::new`, `with_principal`, `mcp::tools`,
+`TOOL_NAME`, `GET_PROJECT_TOOL`, `operation::list_projects`,
+`operation::get_project` and `Principal::demo_*` keep their paths.
+
 ## Templates
 
 Templates are Askama `.html` files with HTML escaping on. `askama.toml`
@@ -217,7 +270,9 @@ for blocks does not work, because Askama rejects a delimiter that is a prefix
 of another. A test fails if a template or the configuration uses the `safe`
 filter or turns escaping off. The one exception is the article body, which
 is `TrustedHtml` from the Markdown policy: the same test requires exactly
-one `HtmlSafe` impl in `src/`, on that type.
+one `HtmlSafe` impl in `src/`, on that type. The `senu serve` pages extend
+`serve_base.html`, which holds the head, the stylesheet link and the demo
+banner.
 
 ## Look: Tailwind CSS and Typography
 
@@ -262,7 +317,9 @@ python3 scripts/check_tutorial.py
 python3 scripts/snapshot_site.py target/site
 ```
 
-The tests include `tests/quickstart_check.rs`, which runs the quickstart's MCP
+`tests/contract.rs` runs Senu's contract over every listed route and tool
+of the demo and of a test-only second application. The tests also include
+`tests/quickstart_check.rs`, which runs the quickstart's MCP
 checker against fake servers, and `tests/tutorial_checker.rs`, which runs the
 own tests of the tutorial checker and of the site snapshot; both need
 `python3`. `check_tutorial.py` runs

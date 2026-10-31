@@ -1,5 +1,4 @@
-//! The MCP adapter: two hand-written tools, `list_projects` and
-//! `get_project`, over stdio.
+//! The MCP adapter: the application's explicit tool list over stdio.
 //!
 //! Under the MCP authorization spec a stdio server takes its credentials from
 //! the environment. `senu mcp --enable-mcp` validates `SENU_MCP_TOKEN` (see
@@ -8,8 +7,9 @@
 //! process that launched Senu and its environment; it does not authenticate
 //! any remote party.
 //!
-//! The tools are declared by hand below. Nothing is exposed automatically, and
-//! no tool macros or reflection are used.
+//! Each tool is an operation that the application lists with [`tool`]; its
+//! JSON Schema is built from the operation's parameters. Nothing is exposed
+//! automatically, and no tool macros or reflection are used.
 
 use std::sync::Arc;
 
@@ -20,21 +20,112 @@ use rmcp::model::{
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::catalogue::Catalogue;
-use crate::operation::{MAX_ID_BYTES, MAX_SEARCH_CHARS, Principal, get_project, list_projects};
+use crate::demo::{get_project, list_projects};
+use crate::operation::{Args, InvalidDeclaration, OpError, Operation, Param, Principal};
 
 /// The name of the `list_projects` tool.
-pub const TOOL_NAME: &str = "list_projects";
+pub const TOOL_NAME: &str = list_projects::OPERATION.name;
 
 /// The name of the `get_project` tool.
-pub const GET_PROJECT_TOOL: &str = "get_project";
+pub const GET_PROJECT_TOOL: &str = get_project::OPERATION.name;
 
-/// The MCP server state: the catalogue and the principal bound at startup.
-pub struct McpServer {
-    catalogue: Catalogue,
+/// What a listed tool runs: its operation, with the result already JSON so
+/// that one list can hold operations with different result types.
+type Call<S> =
+    Box<dyn Fn(&S, &Principal, &Args) -> Result<serde_json::Result<Value>, OpError> + Send + Sync>;
+
+/// One listed tool: its schema and its operation.
+pub struct McpTool<S> {
+    name: &'static str,
+    schema: Tool,
+    invalid: Option<InvalidDeclaration>,
+    call: Call<S>,
+}
+
+impl<S> McpTool<S> {
+    /// The tool's name, which is its operation's.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+}
+
+/// Lists `operation` as a read-only tool of the same name.
+pub fn tool<S, T>(operation: &'static Operation<S, T>) -> McpTool<S>
+where
+    S: 'static,
+    T: Serialize + 'static,
+{
+    McpTool {
+        name: operation.name,
+        schema: Tool::new(
+            operation.name,
+            operation.description,
+            Arc::new(input_schema(operation.params)),
+        )
+        .with_annotations(ToolAnnotations::new().read_only(true)),
+        invalid: operation.check().err(),
+        call: Box::new(move |state, principal, args| {
+            operation
+                .call(state, principal, args)
+                .map(|result| serde_json::to_value(&result))
+        }),
+    }
+}
+
+/// Every parameter is a described string; `required` appears only when some
+/// are required, and no other property is allowed.
+fn input_schema(params: &[Param]) -> Map<String, Value> {
+    let properties: Map<String, Value> = params
+        .iter()
+        .map(|param| {
+            let property = json!({ "type": "string", "description": param.description });
+            (param.name.to_owned(), property)
+        })
+        .collect();
+    let required: Vec<&str> = params
+        .iter()
+        .filter(|param| param.required)
+        .map(|param| param.name)
+        .collect();
+    let mut schema = Map::new();
+    schema.insert("type".to_owned(), json!("object"));
+    schema.insert("properties".to_owned(), Value::Object(properties));
+    if !required.is_empty() {
+        schema.insert("required".to_owned(), json!(required));
+    }
+    schema.insert("additionalProperties".to_owned(), Value::Bool(false));
+    schema
+}
+
+/// A tool list that Senu refuses. `senu mcp` prints it and exits with
+/// status 2 before reading stdin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolError {
+    Duplicate(&'static str),
+    Operation(InvalidDeclaration),
+}
+
+impl std::fmt::Display for ToolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Duplicate(name) => write!(f, "senu: tool {name:?} is listed twice"),
+            Self::Operation(invalid) => write!(f, "senu: {invalid}"),
+        }
+    }
+}
+
+impl std::error::Error for ToolError {}
+
+/// The MCP server state: the application's state, the principal bound at
+/// startup and the listed tools.
+pub struct McpServer<S = Catalogue> {
+    state: S,
     principal: Principal,
+    tools: Vec<McpTool<S>>,
 }
 
 impl McpServer {
@@ -43,13 +134,39 @@ impl McpServer {
         Self::with_principal(catalogue, Principal::demo_mcp())
     }
 
-    /// Binds another principal. Tests use this to inject a principal without
-    /// permissions or in another tenant.
+    /// Binds another principal to the demo's tools. Tests use this to inject
+    /// a principal without permissions or in another tenant. The demo's list
+    /// is valid, which the tests check, so it is not checked again here.
     pub fn with_principal(catalogue: Catalogue, principal: Principal) -> Self {
         Self {
-            catalogue,
+            state: catalogue,
             principal,
+            tools: crate::demo::tools(),
         }
+    }
+}
+
+impl<S> McpServer<S> {
+    /// Serves exactly `tools`, after checking that their names are unique
+    /// and their operations' metadata is valid.
+    pub fn with_tools(
+        state: S,
+        principal: Principal,
+        tools: Vec<McpTool<S>>,
+    ) -> Result<Self, ToolError> {
+        for (i, tool) in tools.iter().enumerate() {
+            if let Some(invalid) = tool.invalid {
+                return Err(ToolError::Operation(invalid));
+            }
+            if tools[..i].iter().any(|other| other.name == tool.name) {
+                return Err(ToolError::Duplicate(tool.name));
+            }
+        }
+        Ok(Self {
+            state,
+            principal,
+            tools,
+        })
     }
 
     /// What `initialize` advertises: the tools capability only.
@@ -58,20 +175,21 @@ impl McpServer {
             .with_server_info(Implementation::new("senu", env!("CARGO_PKG_VERSION")))
     }
 
+    /// What `tools/list` returns: the listed tools, in order.
+    pub fn tools(&self) -> Vec<Tool> {
+        self.tools.iter().map(|tool| tool.schema.clone()).collect()
+    }
+
     /// Answers `tools/call`. An unknown tool is a JSON-RPC invalid-params
     /// error (-32602); an operation error is a tool result with `isError`.
     /// Neither repeats the caller's input.
     pub fn call(&self, request: &CallToolRequestParams) -> Result<CallToolResult, ErrorData> {
+        let Some(tool) = self.tools.iter().find(|tool| tool.name == request.name) else {
+            return Err(ErrorData::invalid_params("unknown tool", None));
+        };
         let no_arguments = Map::new();
         let args = request.arguments.as_ref().unwrap_or(&no_arguments);
-        let result = match request.name.as_ref() {
-            TOOL_NAME => list_projects(&self.catalogue, &self.principal, args)
-                .map(|list| serde_json::to_value(&list)),
-            GET_PROJECT_TOOL => get_project(&self.catalogue, &self.principal, args)
-                .map(|project| serde_json::to_value(&project)),
-            _ => return Err(ErrorData::invalid_params("unknown tool", None)),
-        };
-        match result {
+        match (tool.call)(&self.state, &self.principal, args) {
             Ok(value) => value
                 .map(CallToolResult::structured)
                 .map_err(|_| ErrorData::internal_error("internal", None)),
@@ -82,65 +200,12 @@ impl McpServer {
     }
 }
 
-/// The declared tools, in this order.
+/// The demo's tools, in this order.
 pub fn tools() -> Vec<Tool> {
-    vec![list_projects_tool(), get_project_tool()]
+    McpServer::new(Catalogue::demo()).tools()
 }
 
-/// The schema declares no `maxLength`: JSON Schema counts the raw string,
-/// while the operation trims first, so a schema limit would reject padded
-/// searches the server accepts. The description states the real rule.
-fn list_projects_tool() -> Tool {
-    let mut schema = Map::new();
-    schema.insert("type".to_owned(), json!("object"));
-    schema.insert(
-        "properties".to_owned(),
-        json!({
-            "q": {
-                "type": "string",
-                "description": format!(
-                    "Case-insensitive name search. Surrounding whitespace is trimmed first; \
-                     the trimmed value may hold at most {MAX_SEARCH_CHARS} Unicode scalar values \
-                     and no control characters. Empty means no search."
-                )
-            }
-        }),
-    );
-    schema.insert("additionalProperties".to_owned(), Value::Bool(false));
-    Tool::new(
-        TOOL_NAME,
-        "List the demo projects visible to this server's principal, sorted by id.",
-        Arc::new(schema),
-    )
-    .with_annotations(ToolAnnotations::new().read_only(true))
-}
-
-/// `id` is required and matched exactly, without trimming.
-fn get_project_tool() -> Tool {
-    let mut schema = Map::new();
-    schema.insert("type".to_owned(), json!("object"));
-    schema.insert(
-        "properties".to_owned(),
-        json!({
-            "id": {
-                "type": "string",
-                "description": format!(
-                    "The project id: 1 to {MAX_ID_BYTES} characters of a-z, 0-9 and '-'."
-                )
-            }
-        }),
-    );
-    schema.insert("required".to_owned(), json!(["id"]));
-    schema.insert("additionalProperties".to_owned(), Value::Bool(false));
-    Tool::new(
-        GET_PROJECT_TOOL,
-        "Get one demo project visible to this server's principal by its id.",
-        Arc::new(schema),
-    )
-    .with_annotations(ToolAnnotations::new().read_only(true))
-}
-
-impl ServerHandler for McpServer {
+impl<S: Send + Sync + 'static> ServerHandler for McpServer<S> {
     fn get_info(&self) -> ServerConfig {
         self.info()
     }
@@ -150,7 +215,7 @@ impl ServerHandler for McpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(tools()))
+        Ok(ListToolsResult::with_all_items(self.tools()))
     }
 
     async fn call_tool(
@@ -162,7 +227,10 @@ impl ServerHandler for McpServer {
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
-        tools().into_iter().find(|tool| tool.name == name)
+        self.tools
+            .iter()
+            .find(|tool| tool.name == name)
+            .map(|tool| tool.schema.clone())
     }
 
     /// Answers any method rmcp does not route. rmcp's default puts the

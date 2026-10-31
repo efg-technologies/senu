@@ -1,12 +1,20 @@
 # Notes for coding agents
 
 - Senu is an experimental seed: two pure operations, `list_projects` and
-  `get_project`, over a fixed read-only catalogue, served as HTML and JSON
-  by `senu serve` (loopback only) and as opt-in stdio MCP tools, plus
+  `get_project`, over a fixed read-only catalogue, declared once and served
+  as HTML and JSON by `senu serve` (loopback only) and as opt-in stdio MCP
+  tools, plus
   `senu site`, which serves trusted Markdown articles from `content/`
   without credentials. New behaviour, such as writes, storage or other
   authentication, needs a new spec in `docs/specs/` first. Demo
   credentials stay loopback-only.
+- Declared operations (spec 0005): the application is `src/demo/`
+  (permissions, principals, `endpoints()`, `tools()` and one file per
+  operation); Senu owns `Operation::call`, `http::Endpoints`, `mcp::tool`
+  and `tests/contract.rs`. Expose an operation only by listing it, give
+  each listed operation a sample in `demo_subject`, and keep the README
+  route lists in step (`tests/docs_sync.rs`). `.custom` routes get no
+  authentication; their handler owns it.
 - Specs: `docs/specs/0001-project-catalogue.md` for the catalogue and
   `docs/specs/0003-articles-and-beginner-tutorial.md` for the articles, the
   site and the course (spec 0002, the mdBook tutorial, is superseded).

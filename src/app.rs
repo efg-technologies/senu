@@ -11,8 +11,10 @@ use std::process::ExitCode;
 use crate::catalogue::Catalogue;
 use crate::cli::{self, Command};
 use crate::config::{self, ServeConfig, SiteConfig};
-use crate::http::{self, AppState};
-use crate::mcp::McpServer;
+use crate::demo;
+use crate::http::{self, AppState, Endpoints};
+use crate::mcp::{McpServer, McpTool};
+use crate::operation::Principal;
 use crate::site::Site;
 
 const USAGE_OR_CONFIG: u8 = 2;
@@ -34,7 +36,10 @@ where
             ExitCode::SUCCESS
         }
         Command::Serve => match config::serve_config(vars) {
-            Ok(config) => serve(config),
+            Ok(config) => {
+                let state = AppState::new(Catalogue::demo(), &config);
+                serve(&config, state, demo::endpoints())
+            }
             Err(err) => fail(USAGE_OR_CONFIG, &err),
         },
         Command::Site => match config::site_config(vars) {
@@ -44,7 +49,7 @@ where
         Command::Mcp => match config::mcp_config(vars) {
             // The token is validated and never needed again: stdio trusts
             // the local process that set the environment.
-            Ok(_config) => mcp(),
+            Ok(_config) => mcp(Catalogue::demo(), Principal::demo_mcp(), demo::tools()),
             Err(err) => fail(USAGE_OR_CONFIG, &err),
         },
     }
@@ -63,9 +68,18 @@ fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
         .build()
 }
 
-fn serve(config: ServeConfig) -> ExitCode {
-    let app = http::router(AppState::new(Catalogue::demo(), &config));
-    listen(config.bind, app)
+/// Runs `senu serve` with `endpoints`, the demo's table in production. The
+/// table is checked before anything is bound, so an invalid one exits with
+/// status 2 instead of panicking.
+pub fn serve<S: Send + Sync + 'static>(
+    config: &ServeConfig,
+    state: AppState<S>,
+    endpoints: Endpoints<S>,
+) -> ExitCode {
+    match endpoints.into_router(state) {
+        Ok(app) => listen(config.bind, app),
+        Err(err) => fail(USAGE_OR_CONFIG, &err),
+    }
 }
 
 /// Runs `senu site` over `files`, the embedded articles in production. The
@@ -107,18 +121,26 @@ fn listen(bind: std::net::SocketAddr, app: axum::Router) -> ExitCode {
     })
 }
 
-/// Serves MCP over stdio until stdin reaches EOF. Stdout carries only
-/// JSON-RPC; nothing is logged.
-fn mcp() -> ExitCode {
+/// Serves `tools` over stdio until stdin reaches EOF, every call bound to
+/// `principal`. The list is checked before stdin is read, so an invalid one
+/// exits with status 2. Stdout carries only JSON-RPC; nothing is logged.
+pub fn mcp<S: Send + Sync + 'static>(
+    state: S,
+    principal: Principal,
+    tools: Vec<McpTool<S>>,
+) -> ExitCode {
     use rmcp::ServiceExt as _;
     use rmcp::service::{QuitReason, ServerInitializeError};
 
+    let server = match McpServer::with_tools(state, principal, tools) {
+        Ok(server) => server,
+        Err(err) => return fail(USAGE_OR_CONFIG, &err),
+    };
     let runtime = match runtime() {
         Ok(runtime) => runtime,
         Err(_) => return fail(RUNTIME_FAILURE, &"senu: could not start the runtime"),
     };
     runtime.block_on(async {
-        let server = McpServer::new(Catalogue::demo());
         let running = match server.serve(rmcp::transport::io::stdio()).await {
             Ok(running) => running,
             // EOF before `initialize` is a clean shutdown, not an error.

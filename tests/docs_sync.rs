@@ -2,6 +2,7 @@
 //! (spec 0003): both languages have every chapter of the course, each
 //! chapter links to its translation, and the two languages run the same
 //! checked commands. BLD-1 (spec 0004): the CSS toolchain is pinned.
+//! DOC-1 (spec 0005): the READMEs list the declared routes and tools.
 
 use senu::content::EMBEDDED;
 use senu::site::Site;
@@ -23,6 +24,42 @@ fn readmes_embed_the_quickstart_script_exactly() {
             1,
             "{readme} must embed scripts/quickstart.sh exactly once, byte for byte"
         );
+    }
+}
+
+/// DOC-1 (spec 0005): both READMEs list exactly the demo's declared routes,
+/// with their first parameter, besides the stylesheet, and exactly its
+/// tools, so an operation cannot be exposed without its documentation.
+#[test]
+fn readmes_list_exactly_the_declared_routes_and_tools() {
+    let mut routes: Vec<String> = senu::demo::endpoints()
+        .declared()
+        .iter()
+        .map(|route| match route.params.first() {
+            Some(param) => format!("{}?{}=", route.path, param.name),
+            None => route.path.to_owned(),
+        })
+        .collect();
+    routes.sort();
+    let tools: Vec<&str> = senu::demo::tools().iter().map(|tool| tool.name()).collect();
+    for (readme, tool_prefix) in [
+        ("README.md", "- MCP tool `"),
+        ("README.ja.md", "- MCP ツール `"),
+    ] {
+        let text = read(readme);
+        let mut listed: Vec<String> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("- `GET ")?.split('`').next())
+            .filter(|path| *path != "/_senu/ui.css")
+            .map(str::to_owned)
+            .collect();
+        listed.sort();
+        assert_eq!(listed, routes, "{readme}");
+        let listed: Vec<&str> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix(tool_prefix)?.split('`').next())
+            .collect();
+        assert_eq!(listed, tools, "{readme}");
     }
 }
 
