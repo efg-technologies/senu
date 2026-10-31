@@ -1030,7 +1030,7 @@ gone. Both CSPs say `style-src 'self'`.
 
 RED, with the tests and the old templates:
 `cargo test --locked --no-fail-fast --test adapter_site --test adapter_http --test e2e_site`
-exited 101 with 5 failures: the three CSP assertions (`'unsafe-inline'`),
+exited 101 with 6 failures: the three CSP assertions (`'unsafe-inline'`),
 `no rule for banner`, the stylesheet link count (`left: 0`), and
 `no Typography rule .prose{`. One existing unit test,
 `empty_results_are_announced`, then failed because `<li` also matches
@@ -1084,3 +1084,80 @@ recipe, the `@theme` override, the drift gate, the route and the notices;
 the quickstart blocks are unchanged. In a clone at the commit that edited
 `bg-white` without `npm run css`, `cargo test --test adapter_site --
 every_template_class` exited 101 with `no rule for bg-rose-100`.
+
+### Samples (§7, SMP-1)
+
+Each sample ran in its own `git archive` copy, at the baseline 1163895 and
+at 5b08058, was built, served by the real binary from an empty directory
+on a loopback port, and fetched; the browser rendering is BRW-1's. Counts
+are the user's non-blank added or changed lines, their bytes, files and
+the commands per change; after the change, `npm ci` is needed once per
+clone.
+
+| Sample | Baseline | After |
+|---|---|---|
+| S1, a 3-line article in `content/en/` (no Japanese mirror needed) | 1 file, 3 lines, 108 bytes; `cargo run` | the same; `<main>` is `prose` |
+| S2, a note box in `site_index.html` | 2 files, 7 lines, 371 bytes: 4 lines of HTML plus 3 rules in `site_base.html`'s `<style>`; `cargo run` | 1 file, 4 lines, 216 bytes of HTML with utilities; `npm run css`, `cargo run` |
+| S3, the sans-serif stack and the link colour | 1 file, 2 changed `:root` lines, 131 bytes; `cargo run` | `assets/ui.css`: 1 changed and 1 added `@theme` line, 88 bytes; `npm run css`, `cargo run` |
+| S3b, S3 plus article links | (S3 already covers them) | 2 files, 3 added and 2 removed lines, 354 bytes (adds `prose-a:text-blue-700` to `<main>`) |
+
+S2 after, in the template only:
+
+```html
+<aside class="not-prose my-6 rounded-md border border-l-4 border-gray-200 border-l-blue-700 bg-blue-50 px-4 py-3">
+<p class="mb-1 font-bold">Before you start</p>
+<p>Each chapter takes about ten minutes.</p>
+</aside>
+```
+
+S3 after, in `assets/ui.css`'s `@theme`: `--font-sans: "Trebuchet MS",
+"Noto Sans JP", sans-serif;` and `--color-blue-700: #8b1e3f;`. The served
+stylesheet then has the new stack and `--color-blue-700:#8b1e3f`, which
+recolours the frame's links and the current chapter, but
+`--tw-prose-links` stays `oklch(21% .034 264.665)`: Typography's colours
+are literal values from `tailwindcss/colors`, so `@theme` cannot reach
+article links. S3b's one class does. The baseline's `--link` changed both.
+
+Diagnostics, not targets (baseline 1163895 → 5b08058):
+
+| Item | Before | After |
+|---|---|---|
+| CSS bytes / `gzip -9` | inline `<style>` of both templates: 4914 / 1645 | `ui.generated.css`: 23547 / 4842 |
+| `/`, `/ja/` | 7169, 7577 | 4185, 4596 |
+| largest page, `ja/first-function.html` | 21497 | 18701 |
+| `/projects` | 1255 | 1221 |
+| snapshot | 22 files, 260356 bytes | 24 files (22 pages, the stylesheet, the notices), 226807 bytes |
+
+`npm ci` installs 40 packages, 34 MB in `node_modules`. `Cargo.toml` and
+`Cargo.lock` are unchanged. Senu's own lines since 1163895, from
+`git diff --shortstat`: `src` +44/−17, `templates` +27/−95, `tests`
++295/−9, `scripts` +95/−26, plus `assets/ui.css` (13), `package.json`
+(11) and CI (+9).
+
+### Acceptance criteria and their checks
+
+| ID | Where |
+|---|---|
+| UI-1 | `every_template_class_has_a_rule_in_the_stylesheet` (`tests/adapter_site.rs`) |
+| UI-2 | `the_stylesheet_carries_both_notices_and_no_external_reference`, `every_page_links_the_stylesheet_once_without_inline_style` (`tests/adapter_site.rs`) |
+| ROUTE-1 | `the_stylesheet_is_served_from_memory_at_one_exact_path` (`tests/adapter_site.rs`), `the_stylesheet_needs_no_credentials_and_only_get` (`tests/adapter_http.rs`), `site_serves_the_embedded_articles_from_an_empty_directory` (`tests/e2e_site.rs`); the CSPs in `pages_are_served_as_html_with_strict_headers` and `html_lists_projects_for_valid_basic_credentials` |
+| SAFE-1 | `templates_and_configuration_never_disable_escaping`, unchanged, and the Markdown policy's unit tests |
+| BLD-1 | `the_css_toolchain_is_pinned_to_the_npm_registry` (`tests/docs_sync.rs`); the runs above |
+| BLD-2 | in a clone of 1f394ea, `bg-red-500` as a word and in a `class` attribute in `content/en/01-start.md`, then `npm run css`: the generated file is unchanged and holds no `bg-red-500`; reverted |
+| BLD-3 | below |
+| CI-1 | the gate runs above; `every_template_class_has_a_rule_in_the_stylesheet` |
+| SNAP-1 | `scripts/test_snapshot_site.py` and the real snapshot |
+| CRS-1 | `python3 scripts/check_tutorial.py`; `test_normalization_covers_the_tailwind_build_time_only_on_its_own_line` |
+| DOC-1 | `readmes_embed_the_quickstart_script_exactly` |
+| BRW-1 | not run here |
+
+BLD-3: a fresh clone of 5b08058, with `node`, `npm`, `npx` and `corepack`
+left off `PATH` (`command -v` found none) and the dependency artifacts
+copied from the local `target/`: `cargo build --locked` exit 0,
+`cargo test --locked -- --test-threads=2` exit 0 with 183 passed,
+`scripts/quickstart.sh` exit 0. The built binary then ran `senu site` from
+an empty directory inside `unshare -rn`, a network namespace with only
+loopback (a connection to 1.1.1.1 failed with "Network is unreachable"):
+`/_senu/ui.css` answered 200 `text/css; charset=utf-8` with 23547 bytes
+equal to the committed file, and `/` and `/ja/start` linked it once with
+`<main id="main" class="prose`.
