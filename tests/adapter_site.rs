@@ -267,16 +267,38 @@ fn every_template_class_has_a_rule_in_the_stylesheet() {
     assert!(classes > 20, "{classes}");
 }
 
-/// A class name as Tailwind writes it in a selector.
+/// A class name as Tailwind writes it in a selector, which follows CSSOM's
+/// identifier serialization (`CSS.escape`): a digit at the start, or right
+/// after a leading `-`, becomes a code point escape such as `\32 `.
 fn css_escape(class: &str) -> String {
     let mut escaped = String::new();
-    for c in class.chars() {
-        if !(c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    for (i, c) in class.chars().enumerate() {
+        let leading_digit = c.is_ascii_digit() && (i == 0 || (i == 1 && class.starts_with('-')));
+        if leading_digit || ('\u{1}'..='\u{1f}').contains(&c) || c == '\u{7f}' {
+            escaped.push_str(&format!("\\{:x} ", u32::from(c)));
+        } else if c.is_ascii_alphanumeric() || c == '-' || c == '_' || !c.is_ascii() {
+            escaped.push(c);
+        } else {
             escaped.push('\\');
+            escaped.push(c);
         }
-        escaped.push(c);
     }
     escaped
+}
+
+#[test]
+fn class_selectors_are_escaped_as_tailwind_writes_them() {
+    for (class, selector) in [
+        ("2xl:px-12", "\\32 xl\\:px-12"),
+        ("-mt-2", "-mt-2"),
+        ("w-1/2", "w-1\\/2"),
+        (
+            "[&:lang(ja)]:leading-[1.9]",
+            "\\[\\&\\:lang\\(ja\\)\\]\\:leading-\\[1\\.9\\]",
+        ),
+    ] {
+        assert_eq!(css_escape(class), selector, "{class}");
+    }
 }
 
 /// UI-2: every page links the one stylesheet and carries no inline style.
@@ -287,11 +309,12 @@ fn every_page_links_the_stylesheet_once_without_inline_style() {
         .paths()
         .map(|path| (path.to_owned(), site.page(path).unwrap().to_owned()))
         .collect();
+    // Derived from the site, so that a new article needs no test change.
+    assert!(!pages.is_empty(), "no site pages");
     pages.push((
         "/projects".into(),
         senu::view::projects_page("", &[]).unwrap(),
     ));
-    assert_eq!(pages.len(), 23);
     for (path, page) in pages {
         assert_eq!(page.matches("<link ").count(), 1, "{path}");
         let link = "<link rel=\"stylesheet\" href=\"/_senu/ui.css\">";
