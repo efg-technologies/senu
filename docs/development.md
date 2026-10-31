@@ -1161,3 +1161,38 @@ loopback (a connection to 1.1.1.1 failed with "Network is unreachable"):
 `/_senu/ui.css` answered 200 `text/css; charset=utf-8` with 23547 bytes
 equal to the committed file, and `/` and `/ja/start` linked it once with
 `<main id="main" class="prose`.
+
+### Review fixes (stage 1)
+
+An independent review of the stage 1 commits asked for three changes.
+
+- `every_page_links_the_stylesheet_once_without_inline_style` counted a
+  fixed 23 pages, so a new article failed `cargo test`, and `css_escape`
+  left a leading digit unescaped, so a valid `2xl:` class could not match
+  its rule. RED at f712997, in a clone with a new
+  `content/en/52-sample-page.md` and `2xl:px-12` on the header's inner
+  `<div>`, after `npm run css` (which writes `.\32 xl\:px-12{…}`):
+  `cargo test --test adapter_site` exited 101 with `left: 24` /
+  `right: 23` and `no rule for 2xl:px-12`. The new
+  `class_selectors_are_escaped_as_tailwind_writes_them` failed with
+  `left: "2xl\\:px-12"` / `right: "\\32 xl\\:px-12"`. GREEN at f0c1445:
+  the page list comes from the site, the helper follows CSSOM's
+  identifier escaping, and in the same clone with both edits and no test
+  change, `cargo test --locked` exited 0 with 184 passed.
+- Both READMEs gain a short section on the aims (minimal, consistent,
+  spec-driven), on what Rust does and does not give, and on what is built
+  and what spec 0005 only plans.
+
+### Intermediate browser check (BRW-1, partial; run by the coordinator)
+
+Reported by the coordinator, not run in this session: at fe6d059,
+Chromium 154.0.8037.97 and Firefox 158.0 passed 48 cases, the English and
+Japanese index, first-page, first-note and first-function pages at 1280,
+375 and 320 CSS pixels wide, all 800 pixels high. The stylesheet loaded,
+no inline style was found, no page scrolled horizontally, the skip link,
+focus, chapter list and language links worked, the lowest measured text
+and focus contrast was 6.832:1, and no request left loopback (Chromium
+requests, Firefox resource entries). Japanese home and first-page views
+on mobile were inspected visually. Not run: actual browser zoom, and the
+812 and 568 pixel heights that BRW-1 names; the coordinator will rerun the
+check at the final head.
