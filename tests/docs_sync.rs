@@ -154,6 +154,11 @@ fn the_css_toolchain_is_pinned_to_the_npm_registry() {
         package["scripts"],
         serde_json::json!({"css": "tailwindcss -i assets/ui.css -o assets/ui.generated.css --minify"})
     );
+    // GHSA-rj75-hqrm-r3gf: Typography 0.5.20 pins the parser to 6.0.10.
+    assert_eq!(
+        package["overrides"],
+        serde_json::json!({"@tailwindcss/typography": {"postcss-selector-parser": "6.1.5"}})
+    );
     assert_eq!(
         package["devDependencies"],
         serde_json::Value::Object(
@@ -186,6 +191,10 @@ fn the_css_toolchain_is_pinned_to_the_npm_registry() {
     }
     // Recorded in docs/development.md: registry tarballs and bundled entries.
     assert_eq!(counts, (70, 6));
+    assert_eq!(
+        packages["node_modules/postcss-selector-parser"]["version"],
+        "6.1.5"
+    );
     let notices = read("THIRD-PARTY-NOTICES.txt");
     for (name, version) in pinned {
         let entry = &packages[&format!("node_modules/{name}")];

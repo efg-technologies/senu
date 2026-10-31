@@ -1215,3 +1215,34 @@ bounded wrapper; the tree was unchanged before and after.
 
 Not run here: CI on GitHub, the final browser check of BRW-1 and actual
 browser zoom.
+
+### Stage 1 closure: the parser override and the MCS headings
+
+`npm audit` had 2 moderate findings, both GHSA-rj75-hqrm-r3gf:
+`@tailwindcss/typography` 0.5.20 asks for exactly `postcss-selector-parser`
+6.0.10. `package.json` now has one `overrides` entry, scoped to Typography,
+that sets the parser to 6.1.5, the release that patches the advisory; the
+three pinned versions are unchanged. Registry metadata for 6.1.5: tarball
+`https://registry.npmjs.org/postcss-selector-parser/-/postcss-selector-parser-6.1.5.tgz`,
+integrity `sha512-TEHFzb5K…MLTw6Q==`, repository
+`github.com/postcss/postcss-selector-parser`, the same two dependencies as
+6.0.10. `npm install --package-lock-only --ignore-scripts` (npm 11.6.2,
+Node 24.11.1) changed that entry and also dropped two `inBundle` entries
+of `@tailwindcss/oxide-wasm32-wasi` that the override does not touch, so
+only the parser entry was kept: `resolved` and `integrity` as npm wrote
+them, which equal the registry metadata. The counts stay at 70 registry
+tarballs and 6 bundled entries.
+
+| Command | Exit | Result |
+|---|---|---|
+| `npm ci` | 0 | `found 0 vulnerabilities` |
+| `npm ls postcss-selector-parser` | 0 | `postcss-selector-parser@6.1.5 overridden` under Typography 0.5.20 |
+| `npm audit` | 0 | `found 0 vulnerabilities` |
+| `npm audit signatures` | 0 | 40 verified registry signatures, 11 verified attestations |
+| `npm run css`, twice | 0 | both outputs byte-identical to the committed `assets/ui.generated.css` |
+
+RED, with the new assertions and the old `package.json` and lockfile:
+`cargo test --locked --test docs_sync -- css_toolchain` failed with
+`left: Null` for `overrides`. GREEN with the new files: 5 passed.
+
+Both READMEs name the aims' acronym, MCS, in the existing heading.

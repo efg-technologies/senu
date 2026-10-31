@@ -14,7 +14,7 @@ calls the same function, so all three return the same projects in the same
 order. A test checks that. Senu also serves a small site of Markdown
 articles, which holds a beginner course.
 
-## Aims: minimal, consistent, spec-driven
+## Aims (MCS): minimal, consistent, spec-driven
 
 - **Minimal:** application developers should own as little code,
   configuration and duplication as possible. Today a new article is one
