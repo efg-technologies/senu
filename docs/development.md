@@ -1350,3 +1350,31 @@ says nothing about an external crate, which cannot add an operation today
 (§2, finding 3).
 
 Not run here: CI on GitHub and a browser check of `/project`.
+
+### Protected pages: long words wrap at 320 pixels
+
+RED, reported by the coordinator and not run in this session: at 1aa8800,
+a browser check of the two protected pages passed 11 of 12 cases. Firefox
+158 at 320 by 568 CSS pixels failed on `GET /project?id=acme-003`:
+`document.documentElement.scrollWidth` was 352 against a `clientWidth` of
+320. The cause is the fixture's escaped name in the `<h1>`, whose longest
+word cannot break; no script runs. Chromium at 1280, 375 and 320, Firefox
+at 1280 and 375, and Firefox at 320 on `/projects` passed.
+
+Fix: the `<body>` of `templates/project.html` and `templates/projects.html`
+gains `wrap-anywhere` (`overflow-wrap: anywhere`), which the headings and
+cells inherit; Typography sets no `overflow-wrap`. `site_base.html` already
+used the utility, so the stylesheet does not change. The full name stays
+visible; nothing is truncated or hidden, and the fixture is unchanged.
+
+GREEN so far, through the bounded wrapper: `npm run css` with the existing
+`node_modules`, then `git diff --exit-code -- assets/ui.generated.css`,
+exit 0; `cargo fmt --check`, exit 0; `cargo test --locked --lib` (133),
+`--test adapter_http` (24), `--test adapter_site` (10) and
+`--test docs_sync` (5), all passed. `senu serve` returned both pages with
+`wrap-anywhere` on `<body>` and `/_senu/ui.css` with
+`.wrap-anywhere{overflow-wrap:anywhere}`.
+
+Not run here: a browser; the coordinator reruns the 12 cases. Also not
+run: clippy, the full test suite, the quickstart, the course checker and
+the snapshot.
