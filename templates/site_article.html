@@ -2,10 +2,7 @@
 <%! extends "site_base.html" %>
 <%! block main %>
 <h1><%= frame.title %></h1>
-<%! if !reading.is_empty() %>
-<p class="meta"><%= reading %></p>
+<%! if !reading.is_empty() %><p class="text-sm text-gray-600"><%= reading %></p>
 <%! endif %>
-<div class="article">
 <%= body %>
-</div>
 <%! endblock %>

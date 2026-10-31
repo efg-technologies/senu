@@ -3,7 +3,7 @@
 <%! block main %>
 <h1><%= frame.title %></h1>
 <p><%= frame.labels.intro %></p>
-<ol class="contents">
+<ol>
 <%! for link in frame.nav %>
 <li><a href="<%= link.href %>"><%= link.title %></a></li>
 <%! endfor %>

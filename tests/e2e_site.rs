@@ -10,7 +10,7 @@ use support::process::{self, get, http};
 use support::{STYLESHEET, committed_stylesheet};
 
 const LISTENING: &str = "senu: listening on http://";
-const CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
+const CSP: &str = "default-src 'none'; style-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
 const SENTINEL: &str = "zz-sentinel-value-41";
 
 /// The text of the first line of an article, without `# `.

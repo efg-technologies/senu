@@ -35,8 +35,8 @@ pub const MAX_TARGET_BYTES: usize = 2048;
 
 const BASIC_CHALLENGE: &str = "Basic realm=\"senu\", charset=\"UTF-8\"";
 const BEARER_CHALLENGE: &str = "Bearer realm=\"senu\"";
-const HTML_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
-const SITE_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
+const HTML_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+const SITE_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
 
 /// The only path of the stylesheet, which `npm run css` compiles from
 /// `assets/ui.css` and Cargo embeds, so nothing is read at run time.

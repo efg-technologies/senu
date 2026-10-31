@@ -139,14 +139,15 @@ cargo run --quiet -- site
 senu: listening on http://127.0.0.1:3000
 ```
 
-Open http://127.0.0.1:3000/my-first-note. Your note is much shorter than 200 words, so it shows 1 minute. From the second terminal:
+Open http://127.0.0.1:3000/my-first-note. Your note is much shorter than 200 words, so it shows 1 minute. From the second terminal, `grep -A1` prints each matching line and the one after it, here the title and the reading time below it:
 
 ```sh check=reading-time
-curl -s http://127.0.0.1:3000/my-first-note | grep 'class="meta"'
+curl -s http://127.0.0.1:3000/my-first-note | grep -A1 '<h1>'
 ```
 
 ```text check=reading-time
-<p class="meta">About 1 min read</p>
+<h1>My first note</h1>
+<p class="text-sm text-gray-600">About 1 min read</p>
 ```
 
 ## Exercise: the largest number

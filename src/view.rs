@@ -286,7 +286,8 @@ mod tests {
     fn empty_results_are_announced() {
         let page = projects_page("zephyr", &[]).unwrap();
         assert!(page.contains("No projects match"));
-        assert!(!page.contains("<li"));
+        // `<li` alone would also match the stylesheet's `<link`.
+        assert!(!page.contains("<li ") && !page.contains("<li>"), "{page}");
     }
 
     #[test]

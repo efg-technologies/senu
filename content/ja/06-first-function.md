@@ -139,14 +139,15 @@ cargo run --quiet -- site
 senu: listening on http://127.0.0.1:3000
 ```
 
-http://127.0.0.1:3000/ja/my-first-note を開いてください。ノートは 200 語よりずっと短いので、1 分と表示されます。二つ目のターミナルでも確かめます。
+http://127.0.0.1:3000/ja/my-first-note を開いてください。ノートは 200 語よりずっと短いので、1 分と表示されます。二つ目のターミナルでも確かめます。`grep -A1` は、一致した行とその次の行を表示します。ここでは題名と、その下の読了時間です。
 
 ```sh check=reading-time
-curl -s http://127.0.0.1:3000/ja/my-first-note | grep 'class="meta"'
+curl -s http://127.0.0.1:3000/ja/my-first-note | grep -A1 '<h1>'
 ```
 
 ```text check=reading-time
-<p class="meta">約 1 分で読めます</p>
+<h1>最初のノート</h1>
+<p class="text-sm text-gray-600">約 1 分で読めます</p>
 ```
 
 ## 演習: いちばん大きな数

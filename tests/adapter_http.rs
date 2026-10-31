@@ -147,10 +147,9 @@ async fn html_lists_projects_for_valid_basic_credentials() {
         .collect();
     assert_eq!(item_ids, ["acme-001", "acme-002", "acme-003"]);
     assert!(reply.body.contains("Local demo, not production"));
-    assert!(
-        reply
-            .header(header::CONTENT_SECURITY_POLICY)
-            .contains("default-src 'none'")
+    assert_eq!(
+        reply.header(header::CONTENT_SECURITY_POLICY),
+        "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
     );
 }
 

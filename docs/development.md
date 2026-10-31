@@ -1010,3 +1010,34 @@ cases.
 | `python3 scripts/test_check_tutorial.py` | 0 | |
 | `cargo test --locked --test tutorial_checker` | 0 | 2 passed |
 | `python3 scripts/snapshot_site.py <new dir>` | 0 | `ok: 22 pages, the stylesheet and THIRD-PARTY-NOTICES.txt saved`; 24 files; both files equal the committed ones |
+
+### Templates with utilities and `prose`, and the CSPs (§5, UI-1, UI-2)
+
+Every hand-written rule, the `:root` variables and the CSS-only class
+names are gone; both base templates link `/_senu/ui.css` once. `<main>` on
+the site pages and `<body>` on the projects page carry `prose`; the frame
+uses default-palette utilities, and the two columns start at `lg`. The
+pinned variants express everything, so `assets/ui.css` needs no glue
+rule: `supports-[selector(::details-content)]:lg:hidden` and
+`…:lg:details-content:[content-visibility:visible]` compile to the old
+`@supports selector(::details-content)` and media block,
+`**:focus-visible:outline-3` to `:is(.… *):focus-visible`, and
+`[&:lang(ja)]:` to `:lang(ja)` rules. `.max-w-none` follows `.prose` in the
+output. The chapter list styles its links from the `<ol>`, so chapter 04's
+two `<li><a href="/my-first-note">` lines stay identical; chapter 06 now
+finds the reading time with `grep -A1 '<h1>'`, because the `meta` class is
+gone. Both CSPs say `style-src 'self'`.
+
+RED, with the tests and the old templates:
+`cargo test --locked --no-fail-fast --test adapter_site --test adapter_http --test e2e_site`
+exited 101 with 5 failures: the three CSP assertions (`'unsafe-inline'`),
+`no rule for banner`, the stylesheet link count (`left: 0`), and
+`no Typography rule .prose{`. One existing unit test,
+`empty_results_are_announced`, then failed because `<li` also matches
+`<link`; it now refuses `<li ` and `<li>`. GREEN after the templates,
+`npm run css` and the CSPs:
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
+| `cargo test --locked -- --test-threads=2` | 0 | 183 passed (181 + 2: every template class has a rule; every page links the stylesheet once without inline style) |

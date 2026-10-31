@@ -25,7 +25,7 @@ const FILES: [(&str, &str); 3] = [
     ),
     ("content/en/51-x.md", "# X\n"),
 ];
-const CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
+const CSP: &str = "default-src 'none'; style-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
 
 fn app() -> Router {
     site_router(Site::load(&FILES).expect("valid fixture"))
@@ -237,6 +237,67 @@ async fn the_stylesheet_carries_both_notices_and_no_external_reference() {
             !rest.contains(external),
             "the stylesheet contains {external}"
         );
+    }
+    for typography in [".prose{", ".prose :where(p):not("] {
+        assert!(css.contains(typography), "no Typography rule {typography}");
+    }
+}
+
+/// UI-1: every class in the templates is a literal word with a rule in the
+/// committed stylesheet, so a class added without `npm run css` fails here
+/// even without Node. `not-prose` has no rule of its own; Typography's
+/// selectors exclude it.
+#[test]
+fn every_template_class_has_a_rule_in_the_stylesheet() {
+    let css = committed_stylesheet();
+    let templates = concat!(env!("CARGO_MANIFEST_DIR"), "/templates");
+    let mut classes = 0;
+    for entry in std::fs::read_dir(templates).unwrap() {
+        let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+        for value in text.split(" class=\"").skip(1) {
+            let value = &value[..value.find('"').unwrap()];
+            assert!(!value.contains("<%"), "a class is not literal: {value}");
+            for class in value.split_whitespace().filter(|&c| c != "not-prose") {
+                let selector = format!(".{}", css_escape(class));
+                assert!(css.contains(&selector), "no rule for {class}");
+                classes += 1;
+            }
+        }
+    }
+    assert!(classes > 20, "{classes}");
+}
+
+/// A class name as Tailwind writes it in a selector.
+fn css_escape(class: &str) -> String {
+    let mut escaped = String::new();
+    for c in class.chars() {
+        if !(c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
+/// UI-2: every page links the one stylesheet and carries no inline style.
+#[test]
+fn every_page_links_the_stylesheet_once_without_inline_style() {
+    let site = Site::load(senu::content::EMBEDDED).expect("the embedded articles load");
+    let mut pages: Vec<(String, String)> = site
+        .paths()
+        .map(|path| (path.to_owned(), site.page(path).unwrap().to_owned()))
+        .collect();
+    pages.push((
+        "/projects".into(),
+        senu::view::projects_page("", &[]).unwrap(),
+    ));
+    assert_eq!(pages.len(), 23);
+    for (path, page) in pages {
+        assert_eq!(page.matches("<link ").count(), 1, "{path}");
+        let link = "<link rel=\"stylesheet\" href=\"/_senu/ui.css\">";
+        assert_eq!(page.matches(link).count(), 1, "{path}");
+        assert!(!page.contains("<style"), "{path}");
+        assert!(!page.contains(" style="), "{path}");
     }
 }
 
