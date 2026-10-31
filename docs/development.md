@@ -1049,7 +1049,7 @@ to 949feb2413d6458794dcd2491c4babbbce0c15c1 (v7.1.0, a verified commit
 read back from the GitHub API), then runs `npm ci`, `npm run css` and
 `git diff --exit-code -- assets/ui.generated.css` before the course.
 
-Local runs in fresh clones of 1f394ea, through the bounded wrapper. Only
+Local runs in fresh clones of c879866, through the bounded wrapper. Only
 the Node 24.11.1 install has npm here, so both Node versions ran npm
 11.6.2; the 24.22.0 runs put a task-local Node 24.22.0 first on `PATH`.
 CI uses setup-node's own 24.22.0 and its bundled npm.
@@ -1088,7 +1088,7 @@ every_template_class` exited 101 with `no rule for bg-rose-100`.
 ### Samples (§7, SMP-1)
 
 Each sample ran in its own `git archive` copy, at the baseline 1163895 and
-at 5b08058, was built, served by the real binary from an empty directory
+at a704e10, was built, served by the real binary from an empty directory
 on a loopback port, and fetched; the browser rendering is BRW-1's. Counts
 are the user's non-blank added or changed lines, their bytes, files and
 the commands per change; after the change, `npm ci` is needed once per
@@ -1118,7 +1118,7 @@ recolours the frame's links and the current chapter, but
 are literal values from `tailwindcss/colors`, so `@theme` cannot reach
 article links. S3b's one class does. The baseline's `--link` changed both.
 
-Diagnostics, not targets (baseline 1163895 → 5b08058):
+Diagnostics, not targets (baseline 1163895 → a704e10):
 
 | Item | Before | After |
 |---|---|---|
@@ -1143,7 +1143,7 @@ Diagnostics, not targets (baseline 1163895 → 5b08058):
 | ROUTE-1 | `the_stylesheet_is_served_from_memory_at_one_exact_path` (`tests/adapter_site.rs`), `the_stylesheet_needs_no_credentials_and_only_get` (`tests/adapter_http.rs`), `site_serves_the_embedded_articles_from_an_empty_directory` (`tests/e2e_site.rs`); the CSPs in `pages_are_served_as_html_with_strict_headers` and `html_lists_projects_for_valid_basic_credentials` |
 | SAFE-1 | `templates_and_configuration_never_disable_escaping`, unchanged, and the Markdown policy's unit tests |
 | BLD-1 | `the_css_toolchain_is_pinned_to_the_npm_registry` (`tests/docs_sync.rs`); the runs above |
-| BLD-2 | in a clone of 1f394ea, `bg-red-500` as a word and in a `class` attribute in `content/en/01-start.md`, then `npm run css`: the generated file is unchanged and holds no `bg-red-500`; reverted |
+| BLD-2 | in a clone of c879866, `bg-red-500` as a word and in a `class` attribute in `content/en/01-start.md`, then `npm run css`: the generated file is unchanged and holds no `bg-red-500`; reverted |
 | BLD-3 | below |
 | CI-1 | the gate runs above; `every_template_class_has_a_rule_in_the_stylesheet` |
 | SNAP-1 | `scripts/test_snapshot_site.py` and the real snapshot |
@@ -1151,7 +1151,7 @@ Diagnostics, not targets (baseline 1163895 → 5b08058):
 | DOC-1 | `readmes_embed_the_quickstart_script_exactly` |
 | BRW-1 | not run here |
 
-BLD-3: a fresh clone of 5b08058, with `node`, `npm`, `npx` and `corepack`
+BLD-3: a fresh clone of a704e10, with `node`, `npm`, `npx` and `corepack`
 left off `PATH` (`command -v` found none) and the dependency artifacts
 copied from the local `target/`: `cargo build --locked` exit 0,
 `cargo test --locked -- --test-threads=2` exit 0 with 183 passed,
@@ -1169,13 +1169,13 @@ An independent review of the stage 1 commits asked for three changes.
 - `every_page_links_the_stylesheet_once_without_inline_style` counted a
   fixed 23 pages, so a new article failed `cargo test`, and `css_escape`
   left a leading digit unescaped, so a valid `2xl:` class could not match
-  its rule. RED at f712997, in a clone with a new
+  its rule. RED at 0e18961, in a clone with a new
   `content/en/52-sample-page.md` and `2xl:px-12` on the header's inner
   `<div>`, after `npm run css` (which writes `.\32 xl\:px-12{…}`):
   `cargo test --test adapter_site` exited 101 with `left: 24` /
   `right: 23` and `no rule for 2xl:px-12`. The new
   `class_selectors_are_escaped_as_tailwind_writes_them` failed with
-  `left: "2xl\\:px-12"` / `right: "\\32 xl\\:px-12"`. GREEN at f0c1445:
+  `left: "2xl\\:px-12"` / `right: "\\32 xl\\:px-12"`. GREEN at c79f1c8:
   the page list comes from the site, the helper follows CSSOM's
   identifier escaping, and in the same clone with both edits and no test
   change, `cargo test --locked` exited 0 with 184 passed.
@@ -1185,7 +1185,7 @@ An independent review of the stage 1 commits asked for three changes.
 
 ### Intermediate browser check (BRW-1, partial; run by the coordinator)
 
-Reported by the coordinator, not run in this session: at fe6d059,
+Reported by the coordinator, not run in this session: at 96a0af3,
 Chromium 154.0.8037.97 and Firefox 158.0 passed 48 cases, the English and
 Japanese index, first-page, first-note and first-function pages at 1280,
 375 and 320 CSS pixels wide, all 800 pixels high. The stylesheet loaded,
@@ -1199,7 +1199,7 @@ check at the final head.
 
 ### Final checks of stage 1 (TST-1, local)
 
-Run on 2564e9e, the last commit before this log entry, through the
+Run on 281cd7e, the last commit before this log entry, through the
 bounded wrapper; the tree was unchanged before and after.
 
 | Command | Exit | Result |
@@ -1246,6 +1246,18 @@ RED, with the new assertions and the old `package.json` and lockfile:
 `left: Null` for `overrides`. GREEN with the new files: 5 passed.
 
 Both READMEs name the aims' acronym, MCS, in the existing heading.
+
+### Commit references in the stage 1 entries
+
+Before the first push of stage 1, some commit messages after 1163895 were
+edited. That changed the hashes of the commits after 1163895 but none of
+their trees, so the stage 1 entries above now name the commits that are
+published: c879866, a704e10, 0e18961, c79f1c8, 96a0af3 and 281cd7e, each
+with the same tree as the commit that was checked. Only the references
+were corrected; no check was rerun for this, and every result above is
+the one recorded when it ran. The edits made only in clones for RED runs
+and probes, such as those in BLD-2 and the review fixes, are not part of
+the published history.
 
 ## Spec 0005, baseline B: `get_project` the current way (BASE-1)
 
