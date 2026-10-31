@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-**ひとつの Rust 処理を、Web ページ・JSON API・MCP ツールとして提供します。**
+**それぞれの Rust 処理を、Web ページ・JSON API・MCP ツールとして提供します。**
 
 Senu は実験的な Rust のシード (たたき台) です。純粋関数 `list_projects` ひとつを、
 [Askama](https://askama.rs/) で描画する HTML ページ、[Axum](https://docs.rs/axum)
@@ -167,6 +167,8 @@ CI は静的なスナップショットを成果物として保存します。
 
 - `GET /projects?q=` (Basic): 検索フォーム付きの HTML 一覧。
 - `GET /api/projects?q=` (Bearer): JSON `{"projects": [{"id", "name"}]}`。
+- `GET /project?id=` (Basic): 一つのプロジェクトの HTML ページ。
+- `GET /api/project?id=` (Bearer): JSON `{"id", "name"}`。
 - `GET /_senu/ui.css` (認証なし、`senu site` にもあります): スタイルシート。
   `text/css` でメモリーから返します。`/_senu/` は Senu の予約で、その下のほかのパスは 404 です。
 - MCP ツール `list_projects`: `readOnlyHint: true`、任意の文字列 `q` のみを受け付けます。
@@ -174,7 +176,11 @@ CI は静的なスナップショットを成果物として保存します。
   `{"error": code}` を持つ `isError` の結果になります。未知のツールは JSON-RPC
   エラー `-32602`、rmcp が認識しないメソッドは `-32601` になり、どちらも
   要求された名前を繰り返さない固定のメッセージを返します。
+- MCP ツール `get_project`: `readOnlyHint: true`、必須の文字列 `id` のみを受け付け、
+  結果とエラーの形は `list_projects` と同じです。
 
+`id` は必須で、`a-z`、`0-9`、`-` の 1 から 32 文字をそのまま照合します。それ以外の値は
+`invalid_id` (400) です。存在しない id と、ほかのテナントの id は、どの経路でも同じ `not_found` (404) になります。
 `q` は前後の空白を除いてから、プロジェクト名と大文字小文字を区別せずに照合します。
 空白を除いた後の長さは Unicode スカラー値で 80 個までで、制御文字は使えません。未知のフィールドは拒否されます。
 それ以外のパスは 404、それ以外のメソッドは 405 を返します。リクエストボディ (413) と

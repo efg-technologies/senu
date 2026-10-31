@@ -2,7 +2,7 @@
 
 use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorCode};
 use senu::catalogue::{Catalogue, TenantId};
-use senu::mcp::{McpServer, TOOL_NAME, tools};
+use senu::mcp::{GET_PROJECT_TOOL, McpServer, TOOL_NAME, tools};
 use senu::operation::{MAX_SEARCH_CHARS, Principal};
 use serde_json::{Map, Value, json};
 
@@ -48,9 +48,11 @@ fn ids(value: &Value) -> Vec<&str> {
 }
 
 #[test]
-fn exactly_one_explicit_read_only_tool_is_declared() {
+fn exactly_the_explicit_read_only_tools_are_declared() {
     let tools = tools();
-    assert_eq!(tools.len(), 1);
+    // Spec 0005, §9: `get_project` is the explicit second tool.
+    let names: Vec<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+    assert_eq!(names, [TOOL_NAME, GET_PROJECT_TOOL]);
     let tool = serde_json::to_value(&tools[0]).unwrap();
     assert_eq!(tool["name"], TOOL_NAME);
     assert_eq!(tool["annotations"]["readOnlyHint"], true);
@@ -198,6 +200,66 @@ fn principal_tenant_comes_from_the_server_not_the_arguments() {
         .structured_content
         .unwrap();
     assert_eq!(ids(&structured), ["globex-001"]);
+}
+
+// Spec 0005, §4: the `get_project` tool.
+
+fn get(server: &McpServer, args: Value) -> CallToolResult {
+    let request = CallToolRequestParams::new(GET_PROJECT_TOOL).with_arguments(arguments(args));
+    server.call(&request).expect("a tool result")
+}
+
+#[test]
+fn get_project_tool_requires_exactly_one_string_id() {
+    let tool = serde_json::to_value(&tools()[1]).unwrap();
+    assert_eq!(tool["name"], GET_PROJECT_TOOL);
+    assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    let schema = &tool["inputSchema"];
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(schema["required"], json!(["id"]));
+    let properties = schema["properties"].as_object().expect("properties");
+    assert_eq!(properties.keys().collect::<Vec<_>>(), ["id"]);
+    assert_eq!(properties["id"]["type"], "string");
+    assert!(properties["id"]["description"].is_string(), "{tool}");
+}
+
+#[test]
+fn get_project_returns_one_project_or_a_safe_tool_error() {
+    let server = server();
+    let found = get(&server, json!({ "id": "acme-002" }));
+    assert_eq!(found.is_error, Some(false));
+    let expected = json!({ "id": "acme-002", "name": "Café Roadmap" });
+    assert_eq!(found.structured_content.as_ref(), Some(&expected));
+    assert_eq!(text_json(&found), expected);
+
+    let missing = server
+        .call(&CallToolRequestParams::new(GET_PROJECT_TOOL))
+        .expect("a tool result");
+    assert_tool_error(&missing, "invalid_request");
+    for args in [
+        json!({ "id": null }),
+        json!({ "id": 7 }),
+        json!({ "id": ["acme-001"] }),
+        json!({ "id": "acme-001", "tenant": "globex" }),
+    ] {
+        assert_tool_error(&get(&server, args), "invalid_request");
+    }
+    assert_tool_error(&get(&server, json!({ "id": "ACME-001" })), "invalid_id");
+    for id in ["acme-999", "globex-001"] {
+        assert_tool_error(&get(&server, json!({ "id": id })), "not_found");
+    }
+
+    let nobody = McpServer::with_principal(
+        Catalogue::demo(),
+        Principal::new("nobody", TenantId::ACME, &[]),
+    );
+    for args in [
+        json!({ "id": "acme-001" }),
+        json!({ "id": null, "tenant": "x" }),
+    ] {
+        assert_tool_error(&get(&nobody, args), "forbidden");
+    }
 }
 
 #[test]

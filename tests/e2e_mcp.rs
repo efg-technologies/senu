@@ -50,7 +50,7 @@ fn assert_tool_error(message: &Value, code: &str) {
 }
 
 #[test]
-fn stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof() {
+fn stdio_session_lists_and_calls_the_explicit_tools_then_exits_on_eof() {
     let mut server = process::spawn(process::senu(&["mcp", "--enable-mcp"], &mcp_vars()));
 
     send(
@@ -87,8 +87,10 @@ fn stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof() {
     );
     let list = reply(&mut server, 2);
     let tools = list["result"]["tools"].as_array().expect("tools");
-    assert_eq!(tools.len(), 1, "{list}");
+    // Spec 0005, §9: `get_project` is the explicit second tool.
+    assert_eq!(tools.len(), 2, "{list}");
     assert_eq!(tools[0]["name"], "list_projects");
+    assert_eq!(tools[1]["name"], "get_project");
     assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
     let q_schema = &tools[0]["inputSchema"]["properties"]["q"];
     assert!(q_schema.get("maxLength").is_none(), "{list}");
@@ -152,10 +154,17 @@ fn stdio_session_lists_and_calls_the_one_tool_then_exits_on_eof() {
     assert_eq!(unrouted["error"]["message"], "method not found");
     assert!(unrouted["error"].get("data").is_none());
 
+    let project = call_tool(&mut server, 9, "get_project", json!({ "id": "acme-002" }));
+    assert_eq!(
+        project["result"]["structuredContent"],
+        json!({ "id": "acme-002", "name": "Café Roadmap" }),
+        "{project}"
+    );
+
     server.close_stdin();
     let (status, stdout, stderr) = server.wait();
     assert_eq!(status.code(), Some(0), "{stderr:?}");
-    assert_eq!(stdout.len(), 8, "one reply per request: {stdout:?}");
+    assert_eq!(stdout.len(), 9, "one reply per request: {stdout:?}");
     for line in &stdout {
         let message: Value = serde_json::from_str(line).expect("only JSON-RPC on stdout");
         assert_eq!(message["jsonrpc"], "2.0", "{line}");

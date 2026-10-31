@@ -66,6 +66,17 @@ fn serve_answers_api_and_html_requests_over_a_real_listener() {
     assert_eq!(api.header("cache-control"), Some("no-store"));
     assert_eq!(api.header("x-content-type-options"), Some("nosniff"));
 
+    let project = exchange(get(
+        "/api/project?id=acme-002",
+        &[format!("Authorization: {}", bearer(API_TOKEN))],
+    ));
+    assert_eq!(project.status, 200);
+    let json: serde_json::Value = serde_json::from_str(&project.body).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"id": "acme-002", "name": "Café Roadmap"})
+    );
+
     let html = exchange(get(
         "/projects?q=launch",
         &[format!("Authorization: {}", basic(WEB_USER, WEB_PASSWORD))],

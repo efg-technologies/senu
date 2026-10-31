@@ -18,6 +18,17 @@ pub fn projects_page(q: &str, projects: &[ProjectSummary]) -> Result<String, ask
     ProjectsPage { q, projects }.render()
 }
 
+#[derive(Template)]
+#[template(path = "project.html")]
+struct ProjectPage<'a> {
+    project: &'a ProjectSummary,
+}
+
+/// Renders one project's page.
+pub fn project_page(project: &ProjectSummary) -> Result<String, askama::Error> {
+    ProjectPage { project }.render()
+}
+
 /// The fixed labels of the article pages in one language.
 #[derive(Debug)]
 pub struct Labels {

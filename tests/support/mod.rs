@@ -139,6 +139,19 @@ pub fn html_items(page: &str) -> Vec<(String, String)> {
 }
 
 /// The unescaped `value` of the search input.
+/// The id and name in the heading of a `/project` page, unescaped.
+pub fn html_project(page: &str) -> (String, String) {
+    const OPEN: &str = "<h1 data-project-id=\"";
+    let start = page.find(OPEN).expect("project heading") + OPEN.len();
+    let after = &page[start..];
+    let id_end = after.find("\">").expect("end of id attribute");
+    let name_end = after.find("</h1>").expect("end of heading");
+    (
+        unescape_html(&after[..id_end]),
+        unescape_html(&after[id_end + 2..name_end]),
+    )
+}
+
 pub fn search_value(page: &str) -> String {
     let start = page.find("value=\"").expect("value attribute") + "value=\"".len();
     let end = start + page[start..].find('"').expect("closing quote");

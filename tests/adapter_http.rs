@@ -599,6 +599,147 @@ fn templates_and_configuration_never_disable_escaping() {
     assert!(!markdown.contains("TrustedHtml(pub"));
 }
 
+// Spec 0005, §4: `get_project` on `/api/project` and `/project`.
+
+const PROJECT_API: &str = "/api/project";
+const PROJECT_HTML: &str = "/project";
+
+#[tokio::test]
+async fn project_routes_return_one_project_without_its_tenant() {
+    let app = app();
+    let reply = send(&app, api_get("/api/project?id=acme-002")).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(
+        reply.json(),
+        json!({"id": "acme-002", "name": "Café Roadmap"})
+    );
+    let reply = send(&app, html_get("/project?id=acme-003")).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert!(reply.header(header::CONTENT_TYPE).starts_with("text/html"));
+    assert!(
+        reply
+            .header(header::CONTENT_SECURITY_POLICY)
+            .starts_with("default-src 'none'")
+    );
+    assert!(!reply.body.contains("<script>"), "{}", reply.body);
+    assert_eq!(
+        html_project(&reply.body),
+        (
+            "acme-003".to_owned(),
+            "<script>alert('x')</script> & \"Launch\" Notes".to_owned()
+        )
+    );
+}
+
+#[tokio::test]
+async fn project_routes_check_method_and_credentials_before_input() {
+    let app = app();
+    for query in ["?id=acme-001", "?id=BAD", "?tenant=globex"] {
+        let api = format!("{PROJECT_API}{query}");
+        let html = format!("{PROJECT_HTML}{query}");
+        for authorization in [None, Some(basic(WEB_USER, WEB_PASSWORD))] {
+            let reply = send(&app, get(&api, authorization.as_deref())).await;
+            assert_api_error(&reply, StatusCode::UNAUTHORIZED, "unauthorized");
+            assert_eq!(reply.header(header::WWW_AUTHENTICATE), BEARER_CHALLENGE);
+        }
+        for authorization in [None, Some(bearer(API_TOKEN))] {
+            let reply = send(&app, get(&html, authorization.as_deref())).await;
+            assert_text_error(&reply, StatusCode::UNAUTHORIZED, "Unauthorized");
+            assert_eq!(reply.header(header::WWW_AUTHENTICATE), BASIC_CHALLENGE);
+        }
+        for (path, json) in [(&api, true), (&html, false)] {
+            let request = Request::builder()
+                .method("POST")
+                .uri(path.as_str())
+                .body(Body::empty())
+                .unwrap();
+            let reply = send(&app, request).await;
+            assert_eq!(reply.status, StatusCode::METHOD_NOT_ALLOWED, "{path}");
+            assert_eq!(reply.header(header::ALLOW), "GET");
+            assert_eq!(
+                json,
+                reply
+                    .header(header::CONTENT_TYPE)
+                    .starts_with("application/json")
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn project_routes_deny_a_principal_without_permission_before_validation() {
+    let app = app_without_permissions();
+    for query in [
+        "?id=acme-001",
+        "",
+        "?id=BAD",
+        "?id=a&id=b",
+        "?tenant=globex",
+    ] {
+        let reply = send(&app, api_get(&format!("{PROJECT_API}{query}"))).await;
+        assert_api_error(&reply, StatusCode::FORBIDDEN, "forbidden");
+        let reply = send(&app, html_get(&format!("{PROJECT_HTML}{query}"))).await;
+        assert_text_error(&reply, StatusCode::FORBIDDEN, "Forbidden");
+    }
+}
+
+#[tokio::test]
+async fn project_routes_reject_bad_ids_and_hide_other_tenants() {
+    let app = app();
+    let long = "a".repeat(33);
+    let cases = [
+        (
+            "",
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "Invalid request",
+        ),
+        (
+            "?id=a&id=b",
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "Invalid request",
+        ),
+        (
+            "?id=acme-001&tenant=globex",
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "Invalid request",
+        ),
+        ("?id=", StatusCode::BAD_REQUEST, "invalid_id", "Invalid id"),
+        (
+            "?id=ACME-001",
+            StatusCode::BAD_REQUEST,
+            "invalid_id",
+            "Invalid id",
+        ),
+        (
+            &format!("?id={long}"),
+            StatusCode::BAD_REQUEST,
+            "invalid_id",
+            "Invalid id",
+        ),
+        (
+            "?id=acme-999",
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "Not Found",
+        ),
+        (
+            "?id=globex-001",
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "Not Found",
+        ),
+    ];
+    for (query, status, code, phrase) in cases {
+        let reply = send(&app, api_get(&format!("{PROJECT_API}{query}"))).await;
+        assert_api_error(&reply, status, code);
+        let reply = send(&app, html_get(&format!("{PROJECT_HTML}{query}"))).await;
+        assert_text_error(&reply, status, phrase);
+    }
+}
+
 #[tokio::test]
 async fn responses_never_contain_credentials_or_input() {
     let app = app();

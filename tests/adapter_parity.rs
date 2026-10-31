@@ -9,8 +9,8 @@ use rmcp::model::CallToolRequestParams;
 use senu::catalogue::Catalogue;
 use senu::config::serve_config;
 use senu::http::{AppState, router};
-use senu::mcp::{McpServer, TOOL_NAME};
-use senu::operation::{Principal, list_projects};
+use senu::mcp::{GET_PROJECT_TOOL, McpServer, TOOL_NAME};
+use senu::operation::{Principal, get_project, list_projects};
 use serde_json::{Map, Value};
 use support::*;
 use tower::ServiceExt as _;
@@ -99,5 +99,38 @@ async fn api_mcp_and_html_match_the_operation_for_the_spec_queries() {
         assert_eq!(result.is_error, Some(false), "MCP for {q:?}");
         let structured = result.structured_content.expect("structuredContent");
         assert_eq!(json_items(&structured), expected, "MCP for {q:?}");
+    }
+}
+
+/// Spec 0005, §8: `get_project` returns the same project on all three.
+#[tokio::test]
+async fn api_mcp_and_html_match_get_project() {
+    let config = serve_config(serve_env()).expect("valid test configuration");
+    let app = router(AppState::new(Catalogue::demo(), &config));
+    let mcp = McpServer::new(Catalogue::demo());
+    for id in ["acme-002", "acme-003"] {
+        let mut args = Map::new();
+        args.insert("id".to_owned(), Value::String(id.to_owned()));
+        let direct = get_project(&Catalogue::demo(), &Principal::demo_api(), &args).unwrap();
+        let expected = (direct.id, direct.name);
+        assert_eq!(expected.0, id);
+        let api = body(&app, &format!("/api/project?id={id}"), &bearer(API_TOKEN)).await;
+        let api: Value = serde_json::from_str(&api).unwrap();
+        assert_eq!(
+            api,
+            serde_json::json!({"id": expected.0, "name": expected.1}),
+            "API for {id}"
+        );
+        let page = body(
+            &app,
+            &format!("/project?id={id}"),
+            &basic(WEB_USER, WEB_PASSWORD),
+        )
+        .await;
+        assert_eq!(html_project(&page), expected, "HTML for {id}");
+        let request = CallToolRequestParams::new(GET_PROJECT_TOOL).with_arguments(args);
+        let result = mcp.call(&request).expect("a tool result");
+        assert_eq!(result.is_error, Some(false), "MCP for {id}");
+        assert_eq!(result.structured_content, Some(api), "MCP for {id}");
     }
 }

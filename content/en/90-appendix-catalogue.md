@@ -89,7 +89,7 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 failures:
     catalogue::tests::demo_catalogue_matches_the_spec_table
 
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 126 filtered out; finished in 0.00s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 132 filtered out; finished in 0.00s
 
 error: test failed, to rerun pass `--lib`
 ```
@@ -118,7 +118,7 @@ cargo test --quiet --lib demo_catalogue_matches_the_spec_table
 
 running 1 test
 .
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 126 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 132 filtered out; finished in 0.00s
 
 ```
 
@@ -153,14 +153,14 @@ cargo test --quiet --test adapter_http --test adapter_parity
 
 ```text check=adapters
 
-running 20 tests
-....................
-test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 24 tests
+........................
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 
-running 1 test
-.
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 ```
 

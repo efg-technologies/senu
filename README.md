@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-**One Rust operation, served as a web page, a JSON API and an MCP tool.**
+**Each Rust operation, served as a web page, a JSON API and an MCP tool.**
 
 Senu is an experimental Rust seed. A single pure function, `list_projects`,
 is shared by three transports: an HTML page rendered with
@@ -172,10 +172,12 @@ an artifact.
 variable without printing its value; a bind failure exits 1. Tenants and
 roles cannot be configured.
 
-## Routes and the MCP tool
+## Routes and the MCP tools
 
 - `GET /projects?q=` (Basic): an HTML list with a search form.
 - `GET /api/projects?q=` (Bearer): JSON `{"projects": [{"id", "name"}]}`.
+- `GET /project?id=` (Basic): one project's HTML page.
+- `GET /api/project?id=` (Bearer): JSON `{"id", "name"}`.
 - `GET /_senu/ui.css` (no credentials, also under `senu site`): the
   stylesheet, `text/css`, served from memory. `/_senu/` is reserved for
   Senu; every other path below it is 404.
@@ -185,7 +187,12 @@ roles cannot be configured.
   tool gets JSON-RPC error `-32602` and a method that rmcp does not recognise
   gets `-32601`; both carry fixed messages that do not repeat the requested
   name.
+- MCP tool `get_project`: `readOnlyHint: true`, required string `id`, no
+  other fields, with the same results and errors.
 
+`id` is required: 1 to 32 characters of `a-z`, `0-9` and `-`, matched
+exactly; any other value is `invalid_id` (400). An id that is unknown or
+belongs to another tenant is `not_found` (404) on every transport.
 `q` is trimmed, then matched case-insensitively against project names. After
 trimming it may hold up to 80 Unicode scalar values and no control characters. Unknown fields are rejected.
 Every other path returns 404 and every other method 405. Request bodies

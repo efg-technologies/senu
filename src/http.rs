@@ -2,7 +2,8 @@
 //!
 //! Every request passes through the same steps, in this order: size limits,
 //! routing (unknown paths are 404, methods other than GET are 405),
-//! authentication for the matched route, and finally `list_projects`. The
+//! authentication for the matched route, and finally the route's operation
+//! (`list_projects` or `get_project`). The
 //! query string is parsed only after authentication succeeds, and it is
 //! never searched for credentials.
 //!
@@ -26,7 +27,7 @@ use serde_json::{Map, Value};
 use crate::auth::{Secret, basic_matches, bearer_matches};
 use crate::catalogue::Catalogue;
 use crate::config::ServeConfig;
-use crate::operation::{OpError, Principal, list_projects};
+use crate::operation::{OpError, Principal, get_project, list_projects};
 use crate::site::Site;
 use crate::view;
 
@@ -93,6 +94,8 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/projects", any(html_projects))
         .route("/api/projects", any(api_projects))
+        .route("/project", any(html_project))
+        .route("/api/project", any(api_project))
         .route(STYLESHEET_PATH, any(stylesheet))
         .fallback(not_found)
         .with_state(Arc::new(state))
@@ -120,6 +123,7 @@ pub enum HttpError {
     Forbidden,
     InvalidRequest,
     InvalidSearch,
+    InvalidId,
     NotFound,
     MethodNotAllowed,
     UriTooLong,
@@ -132,7 +136,7 @@ impl HttpError {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
-            Self::InvalidRequest | Self::InvalidSearch => StatusCode::BAD_REQUEST,
+            Self::InvalidRequest | Self::InvalidSearch | Self::InvalidId => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::UriTooLong => StatusCode::URI_TOO_LONG,
@@ -148,6 +152,7 @@ impl HttpError {
             Self::Forbidden => "forbidden",
             Self::InvalidRequest => "invalid_request",
             Self::InvalidSearch => "invalid_search",
+            Self::InvalidId => "invalid_id",
             Self::NotFound => "not_found",
             Self::MethodNotAllowed => "method_not_allowed",
             Self::UriTooLong => "uri_too_long",
@@ -163,6 +168,7 @@ impl HttpError {
             Self::Forbidden => "Forbidden",
             Self::InvalidRequest => "Invalid request",
             Self::InvalidSearch => "Invalid search",
+            Self::InvalidId => "Invalid id",
             Self::NotFound => "Not Found",
             Self::MethodNotAllowed => "Method Not Allowed",
             Self::UriTooLong => "URI Too Long",
@@ -178,6 +184,8 @@ impl From<OpError> for HttpError {
             OpError::Forbidden => Self::Forbidden,
             OpError::InvalidRequest => Self::InvalidRequest,
             OpError::InvalidSearch => Self::InvalidSearch,
+            OpError::InvalidId => Self::InvalidId,
+            OpError::NotFound => Self::NotFound,
         }
     }
 }
@@ -265,6 +273,41 @@ async fn html_projects(State(app): State<Shared>, request: Request) -> Response 
     // The operation accepted the arguments, so `q` is absent or a valid string.
     let q = args.get("q").and_then(Value::as_str).unwrap_or("").trim();
     match view::projects_page(q, &list.projects) {
+        Ok(page) => ([(header::CONTENT_SECURITY_POLICY, HTML_CSP)], Html(page)).into_response(),
+        Err(_) => surface.error(HttpError::Internal),
+    }
+}
+
+async fn api_project(State(app): State<Shared>, request: Request) -> Response {
+    let surface = Surface::Api;
+    if request.method() != Method::GET {
+        return surface.error(HttpError::MethodNotAllowed);
+    }
+    if !bearer_matches(single_authorization(request.headers()), &app.api_token) {
+        return surface.error(HttpError::Unauthorized);
+    }
+    let args = query_arguments(request.uri().query());
+    match get_project(&app.catalogue, &app.api_principal, &args) {
+        Ok(project) => Json(project).into_response(),
+        Err(err) => surface.error(err.into()),
+    }
+}
+
+async fn html_project(State(app): State<Shared>, request: Request) -> Response {
+    let surface = Surface::Html;
+    if request.method() != Method::GET {
+        return surface.error(HttpError::MethodNotAllowed);
+    }
+    let authorization = single_authorization(request.headers());
+    if !basic_matches(authorization, &app.web_user, &app.web_password) {
+        return surface.error(HttpError::Unauthorized);
+    }
+    let args = query_arguments(request.uri().query());
+    let project = match get_project(&app.catalogue, &app.web_principal, &args) {
+        Ok(project) => project,
+        Err(err) => return surface.error(err.into()),
+    };
+    match view::project_page(&project) {
         Ok(page) => ([(header::CONTENT_SECURITY_POLICY, HTML_CSP)], Html(page)).into_response(),
         Err(_) => surface.error(HttpError::Internal),
     }
@@ -451,6 +494,17 @@ mod tests {
             OpError::InvalidSearch,
         ] {
             assert_eq!(HttpError::from(err).code(), err.code());
+        }
+    }
+
+    #[test]
+    fn get_project_errors_keep_their_codes_and_statuses() {
+        assert_eq!(HttpError::InvalidId.status().as_u16(), 400);
+        assert_eq!(HttpError::InvalidId.code(), "invalid_id");
+        assert_eq!(HttpError::InvalidId.phrase(), "Invalid id");
+        for (err, status) in [(OpError::InvalidId, 400), (OpError::NotFound, 404)] {
+            assert_eq!(HttpError::from(err).code(), err.code());
+            assert_eq!(HttpError::from(err).status().as_u16(), status);
         }
     }
 
