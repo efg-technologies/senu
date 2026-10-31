@@ -59,6 +59,8 @@ The contract tests also run a test-only state type that is not `Catalogue`, with
 
 These must keep holding: principals and tenants are selected only by the server, and tenants stay isolated; permission is denied before any input is validated; the same operation is called on HTML, JSON and MCP; limits, unknown-field, type and error behaviour stay as they are; autoescaping stays on, with `src/markdown.rs` as the only `HtmlSafe` impl; the Markdown URL and raw-HTML policy stays strict, and the site stays isolated without credentials; MCP stays an explicit opt-in on stdio, with the token checked at startup only; routes stay explicit and validated, with no filesystem paths at run time; errors repeat neither input nor credentials.
 
+The permission-first guarantee is bounded. The permission that an operation declares is checked before the common parameter envelope and before decoding, and each public pure function (`list_projects`, `get_project`) still checks it before decoding when it is called directly; tests keep a direct call that is denied with malformed input. Any further domain policy inside `run` happens after the envelope, and Senu does not claim to check arbitrary policy before input validation.
+
 ## 7. Measured samples and counting rules
 
 - **A1, the add-an-operation sample:** `get_project`. On the baseline side, B's `git diff --numstat`. On the after side, the operation's own file, its template, and every line added to `src/demo/mod.rs`, tests and docs. Both sides count non-blank lines, split into Rust, templates, metadata (declaration, params, error codes, route and tool lines), tests, docs and commands, plus the files touched and the commands run.
