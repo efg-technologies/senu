@@ -4,7 +4,7 @@
 
 **それぞれの Rust 処理を、Web ページ・JSON API・MCP ツールとして提供します。**
 
-Senu は実験的な Rust のシード (たたき台) です。純粋関数 `list_projects` ひとつを、
+Senu は実験的な Rust のシード (たたき台) です。`list_projects` や `get_project` のような純粋関数を一度だけ宣言し、
 [Askama](https://askama.rs/) で描画する HTML ページ、[Axum](https://docs.rs/axum)
 の JSON API、公式 SDK [`rmcp`](https://rust.sdk.modelcontextprotocol.io/) で作った
 stdio 上の [MCP](https://modelcontextprotocol.io/) ツール (明示的に有効化したときだけ)
@@ -17,7 +17,8 @@ stdio 上の [MCP](https://modelcontextprotocol.io/) ツール (明示的に有�
 
 - **最小 (Minimal):** アプリケーションの開発者が持つコード、設定、重複をできるだけ少なくします。
   いまは、記事の追加は Markdown のファイル一つ、見た目の変更はテンプレートのクラスと
-  `npm run css` です。
+  `npm run css`、処理の追加は宣言一つとルートやツールごとに一行です
+  ([処理を追加する](#処理を追加する) を参照)。
 - **一貫 (Consistent):** 人と AI の道具が同じ決まりで書けるようにし、`rustfmt`、
   `clippy -D warnings`、スタイルシートについては CI のずれの検査で保ちます。
   これらが確かめるのは形で、業務の規則が正しいことまでは証明しません。
@@ -26,9 +27,10 @@ stdio 上の [MCP](https://modelcontextprotocol.io/) ツール (明示的に有�
 
 Rust を土台にしたのは、メモリーと型の安全性、そして速さのためですが、言語だけで
 プログラムが安全で速くなるわけではありません。Tailwind CSS のような新しい道具は、
-これらの目的に役立つときに採り入れます。実装済み: 三つの経路で共有する処理、記事のサイト、
-Tailwind の UI (仕様 0004)。計画中で未実装: すべての経路に一度で宣言する処理
-([仕様 0005](docs/specs/0005-app-developer-flow.md))。
+これらの目的に役立つときに採り入れます。実装済み: 一度だけ宣言し、明示したルートとツールの一覧
+だけで三つの経路に公開する処理 ([仕様 0005](docs/specs/0005-app-developer-flow.md))、
+記事のサイト、Tailwind の UI (仕様 0004)。ここでは計画していないもの: ほかのクレートから使う
+ライブラリーやスターターキット。採用する人はこのシードをフォークします。
 
 ## Rust がはじめての方は講座から
 
@@ -188,6 +190,44 @@ CI は静的なスナップショットを成果物として保存します。
 応答には `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` が付き、
 エラーが入力や秘密の値を繰り返すことはありません。
 
+## 処理を追加する
+
+Senu はライブラリーではなく、フォークして使うシードです。アプリケーションは `src/demo/` に、
+Senu のアダプターは `src/http.rs` と `src/mcp.rs` にあります。
+
+| アプリケーションが持つもの | Senu が持つもの |
+|---|---|
+| 状態、テナント、プリンシパル。`Permission` の定数。各処理の関数、引数の構造体、結果、エラーコード、`Operation` の宣言。ビューとテンプレート。ルート表とツールの一覧。業務のテスト | Basic と Bearer の確認、サイズの制限、メソッドの確認、パラメーターの枠より先の権限確認、エラーの対応付け、CSP とヘッダー、パラメーターから作る JSON Schema、起動時のルートとツールの検証、契約テスト |
+
+1. `src/demo/<name>.rs` を作り、`operation::decode` で `#[serde(deny_unknown_fields)]`
+   の構造体に読み込む非公開の関数 `fn(&S, &Principal, &Args) -> Result<T, OpError>` と、
+   名前・説明・権限・文字列のパラメーターを持つ `pub const OPERATION: Operation<S, T>`
+   を書きます。処理固有のエラーは `OpError::Invalid { code, phrase }` (400) か
+   `OpError::NotFound` です。
+2. `src/demo/mod.rs` に並べます。`endpoints()` に `.html(path, &OPERATION, view)` や
+   `.api("/api/…", &OPERATION)` を、`tools()` に `mcp::tool(&OPERATION)` を書きます。
+   宣言しても並べていない処理は公開されません。
+3. 業務のテストを処理の隣に書き、`tests/contract.rs` の `demo_subject` に成功する例を
+   一つ足します。すると CT-1 から CT-7 がその処理にも走ります。ルートとツールを
+   両方の README に書くと、`tests/docs_sync.rs` が確かめます。
+
+制限: パラメーターは文字列で、パスは完全一致です。それ以外は `.custom(path, handler)`
+を使います。サイズの制限と応答ヘッダーは付きますが、認証、メソッドの確認、CSP は付かないので、
+ハンドラーが自分で行います。契約テストもこれを対象にしません。`Operation::call` は宣言された
+権限をパラメーターの枠より先に、枠を関数より先に確かめます。関数の中でさらに行う方針の確認は
+枠の後になります。ルート表やツールの一覧が正しくないと、`senu serve` や `senu mcp` は
+待ち受けや stdin の読み込みの前に状態 2 で終了します。
+
+移行 (仕様 0005、§9): ルート、本文、ヘッダー、スキーマ、エラーは変わりません。
+`Permission` は newtype になり、新しい名前は `demo::LIST_PROJECTS` と `demo::VIEW_PROJECT`
+ですが、`Permission::ListProjects` と `Permission::ViewProject` もそのまま使えます。
+`OpError` と `HttpError` は `InvalidSearch` と `InvalidId` を残したまま
+`Invalid { code, phrase }` が加わるので、網羅的な `match` には腕が一つ要ります。
+`AppState` と `McpServer` は状態の型を取り、既定は `Catalogue` です。`http::router`、
+`AppState::new`、`with_principals`、`McpServer::new`、`with_principal`、`mcp::tools`、
+`TOOL_NAME`、`GET_PROJECT_TOOL`、`operation::list_projects`、`operation::get_project`、
+`Principal::demo_*` は同じパスのままです。
+
 ## テンプレート
 
 テンプレートは HTML エスケープを有効にした Askama の `.html` ファイルです。
@@ -205,6 +245,8 @@ CI は静的なスナップショットを成果物として保存します。
 テンプレートや設定が `safe` フィルターを使ったりエスケープを無効にしたりすると、
 テストが失敗します。唯一の例外は記事の本文で、Markdown のポリシーが作る `TrustedHtml` です。
 同じテストが、`src/` の中の `HtmlSafe` の実装がその型に対する一つだけであることを確かめます。
+`senu serve` のページは、head、スタイルシートへのリンク、デモの注意書きを持つ
+`serve_base.html` を拡張します。
 
 ## 見た目: Tailwind CSS と Typography
 
@@ -247,7 +289,8 @@ python3 scripts/check_tutorial.py
 python3 scripts/snapshot_site.py target/site
 ```
 
-テストには、quickstart の MCP チェッカーを偽のサーバーに対して動かす
+`tests/contract.rs` は、デモと、テスト専用の二つ目のアプリケーションが並べたすべてのルートと
+ツールに Senu の契約を実行します。テストにはほかに、quickstart の MCP チェッカーを偽のサーバーに対して動かす
 `tests/quickstart_check.rs` と、チュートリアル確認スクリプトとサイトのスナップショットの
 それぞれのテストを実行する `tests/tutorial_checker.rs` が含まれ、どちらも `python3` が必要です。
 `check_tutorial.py` は講座を英語、日本語の順に、それぞれ最後のコミットの一時的なコピーで

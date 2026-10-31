@@ -397,6 +397,11 @@ async fn check_contract<S: Send + Sync + 'static>(subject: Subject<S>) {
 
     // CT-5 and CT-7: empty arguments and the application's sample give the
     // same outcome on all three transports, and pages keep their headers.
+    for route in &routes {
+        let name = route.operation.unwrap();
+        let sampled = subject.samples.iter().any(|(sample, _)| *sample == name);
+        assert!(sampled, "{name} has no sample");
+    }
     let tools = server.tools();
     for &(name, sample) in subject.samples {
         let path = |kind| {
