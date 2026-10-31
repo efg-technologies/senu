@@ -938,3 +938,20 @@ functions, zero failures, plus the script regressions and the real course
 runs. The independent reviewer separately ran 17 harmless Python fixtures,
 all passing. Final remote CI and public-clone readback are recorded by the
 release check; this log does not claim a live hosted website.
+
+## Spec 0004: Tailwind CSS and Typography (stage 1)
+
+### Semantic selectors (§9 step 1)
+
+The templates now put `class` last in every tag, and the Rust tests find
+elements by what they are rather than by the old CSS class names: the
+chapter list by `<details`, the pager links by `rel="prev"` and
+`rel="next"`, the language link by `hreflang=`, the skip link by
+`<a href="#main"`, `<main id="main"` as a prefix, and the reading time by
+its text. The rendered pages differ only in attribute order.
+
+| Command | Exit | Result |
+|---|---|---|
+| `cargo fmt --check` | 0 | |
+| `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
+| `cargo test --locked -- --test-threads=2` | 0 | 177 passed: unit 127, adapter 34, E2E 7, docs sync 4, quickstart checker 3, tutorial checker 2 |

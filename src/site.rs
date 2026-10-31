@@ -324,8 +324,7 @@ mod tests {
 
     /// The chapter list as (href, current) pairs.
     fn chapter_list(page: &str) -> Vec<(String, bool)> {
-        let list =
-            &page[page.find("<details class=\"toc\">").unwrap()..page.find("</details>").unwrap()];
+        let list = &page[page.find("<details").unwrap()..page.find("</details>").unwrap()];
         list.lines()
             .filter_map(|line| {
                 let href = line.strip_prefix("<li><a href=\"")?;
@@ -338,10 +337,15 @@ mod tests {
             .collect()
     }
 
-    fn link_with_class(page: &str, class: &str) -> Option<String> {
-        let marker = format!("<a class=\"{class}\" href=\"");
-        let start = page.find(&marker)? + marker.len();
-        Some(page[start..start + page[start..].find('"')?].to_owned())
+    /// The href of the first link whose start tag continues with `rest`
+    /// right after the href, such as ` rel="next"`.
+    fn link_followed_by(page: &str, rest: &str) -> Option<String> {
+        page.split("<a href=\"").skip(1).find_map(|tag| {
+            let end = tag.find('"')?;
+            tag[end + 1..]
+                .starts_with(rest)
+                .then(|| tag[..end].to_owned())
+        })
     }
 
     #[test]
@@ -508,8 +512,8 @@ mod tests {
         let pager = |path: &str| {
             let page = page(&site, path);
             (
-                link_with_class(&page, "previous"),
-                link_with_class(&page, "next"),
+                link_followed_by(&page, " rel=\"prev\""),
+                link_followed_by(&page, " rel=\"next\""),
             )
         };
         let some = |href: &str| Some(href.to_owned());
@@ -537,7 +541,7 @@ mod tests {
         for (path, alternate, lang) in cases {
             let page = page(&site, path);
             assert_eq!(
-                link_with_class(&page, "lang").as_deref(),
+                link_followed_by(&page, " hreflang=").as_deref(),
                 Some(alternate),
                 "{path}"
             );
@@ -580,8 +584,8 @@ mod tests {
         for path in site.paths() {
             let page = page(&site, path);
             assert_eq!(page.matches("<h1>").count(), 1, "{path}");
-            assert_eq!(page.matches("<main id=\"main\">").count(), 1, "{path}");
-            assert!(page.contains("<a class=\"skip\" href=\"#main\">"), "{path}");
+            assert_eq!(page.matches("<main id=\"main\"").count(), 1, "{path}");
+            assert!(page.contains("<a href=\"#main\""), "{path}");
             assert!(page.contains("<meta name=\"viewport\""), "{path}");
         }
     }
@@ -598,9 +602,9 @@ mod tests {
             ),
         ])
         .unwrap();
-        assert!(page(&site, "/long").contains("<p class=\"meta\">About 2 min read</p>"));
-        assert!(!page(&site, "/empty").contains("class=\"meta\""));
-        assert!(page(&site, "/ja/long").contains("<p class=\"meta\">約 2 分で読めます</p>"));
+        assert!(page(&site, "/long").contains(">About 2 min read</p>"));
+        assert!(!page(&site, "/empty").contains("min read"));
+        assert!(page(&site, "/ja/long").contains(">約 2 分で読めます</p>"));
     }
 
     #[test]

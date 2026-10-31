@@ -67,15 +67,15 @@
 </style>
 </head>
 <body>
-<a class="skip" href="#main"><%= frame.labels.skip %></a>
+<a href="#main" class="skip"><%= frame.labels.skip %></a>
 <header class="top">
 <div class="top-inner">
-<a class="home" href="<%= frame.labels.home %>"><%= frame.labels.site %></a>
-<a class="lang" href="<%= frame.alternate %>" hreflang="<%= frame.labels.other_lang %>" lang="<%= frame.labels.other_lang %>"><%= frame.labels.other_language %></a>
+<a href="<%= frame.labels.home %>" class="home"><%= frame.labels.site %></a>
+<a href="<%= frame.alternate %>" hreflang="<%= frame.labels.other_lang %>" lang="<%= frame.labels.other_lang %>" class="lang"><%= frame.labels.other_language %></a>
 </div>
 </header>
 <div class="frame">
-<nav class="toc-wrap" aria-label="<%= frame.labels.chapters %>">
+<nav aria-label="<%= frame.labels.chapters %>" class="toc-wrap">
 <details class="toc">
 <summary><%= frame.labels.chapters %></summary>
 <ol>
@@ -91,12 +91,12 @@
 </nav>
 <main id="main">
 <%! block main %><%! endblock %>
-<nav class="pager" aria-label="<%= frame.labels.pager %>">
+<nav aria-label="<%= frame.labels.pager %>" class="pager">
 <%! if let Some(link) = frame.previous %>
-<a class="previous" href="<%= link.href %>" rel="prev"><%= frame.labels.previous %>: <%= link.title %></a>
+<a href="<%= link.href %>" rel="prev" class="previous"><%= frame.labels.previous %>: <%= link.title %></a>
 <%! endif %>
 <%! if let Some(link) = frame.next %>
-<a class="next" href="<%= link.href %>" rel="next"><%= frame.labels.next %>: <%= link.title %></a>
+<a href="<%= link.href %>" rel="next" class="next"><%= frame.labels.next %>: <%= link.title %></a>
 <%! endif %>
 </nav>
 </main>

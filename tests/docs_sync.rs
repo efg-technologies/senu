@@ -72,7 +72,7 @@ fn every_chapter_links_to_its_translation() {
         ] {
             let html = site.page(&page).unwrap_or_else(|| panic!("no page {page}"));
             assert!(
-                html.contains(&format!("<a class=\"lang\" href=\"{pair}\"")),
+                html.contains(&format!("<a href=\"{pair}\" hreflang=")),
                 "{page} does not link to {pair}"
             );
         }
