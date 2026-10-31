@@ -34,7 +34,7 @@ Senu のページの見た目は、[Tailwind CSS](https://tailwindcss.com/) か�
 node --version
 ```
 
-Ctrl+C で Senu を止めます。次のパッチは、上の帯の背景を薄いローズ色にします。`rose` はまだどのテンプレートにも使われていません。
+Ctrl+C で Senu を止めます。エディターで `templates/site_base.html` を開き、`<header class="border-b border-gray-200 bg-white">` の行を探します。その行の `bg-white` を `bg-rose-100` に書き換え、ファイルを保存します。これで上の帯の背景が薄いローズ色になります。`rose` はまだどのテンプレートにも使われていません。すぐ上のスキップリンクの行にも `bg-white` がありますが、そちらはそのままにします。下の枠は同じ変更を**差分** (diff) で示したものです。`-` で始まる行が元の行、`+` で始まる行が新しい行で、空白で始まる行は場所を示す変わらない行です。`-`、`+`、行頭の空白は入力しません。
 
 ```diff patch
 --- a/templates/site_base.html
@@ -96,4 +96,4 @@ cargo run --quiet -- site
 senu: listening on http://127.0.0.1:3000
 ```
 
-テンプレートと `assets/ui.generated.css` は一緒にコミットします。そうすれば Node のない読者にも同じ見た目が届きます。すべてのページのフォントや色を変えたいときは、`assets/ui.css` の `@theme` ブロックを編集し、もう一度 `npm run css` を実行します。
+テンプレートと `assets/ui.generated.css` は一緒にコミットします。そうすれば Node のない読者にも同じ見た目が届きます。すべてのページのフォントや色を変えたいときは、`assets/ui.css` の `@theme` ブロックを編集し、もう一度 `npm run css` を実行します。ただし記事の中のリンクは別です。Typography はそこで自分の色を持つので、記事の中のリンクの色は `@theme` では変わりません。`templates/site_base.html` の `<main>` に `prose-a:` のクラスを付ければ変わります。

@@ -34,7 +34,7 @@ Senu's pages get their look from [Tailwind CSS](https://tailwindcss.com/), small
 node --version
 ```
 
-Stop Senu with Ctrl+C. This patch gives the top bar a light rose background; no template uses `rose` yet:
+Stop Senu with Ctrl+C. Open `templates/site_base.html` in your editor and find the line `<header class="border-b border-gray-200 bg-white">`. On that line, replace `bg-white` with `bg-rose-100`, then save the file. This gives the top bar a light rose background; no template uses `rose` yet. The skip link just above also uses `bg-white`; leave it as it is. The box below shows the same change as a **diff**: the line that starts with `-` is the old line, the line that starts with `+` is the new one, and the lines that start with a space are unchanged context that shows where. You do not type the `-`, the `+` or the leading space:
 
 ```diff patch
 --- a/templates/site_base.html
@@ -96,4 +96,4 @@ cargo run --quiet -- site
 senu: listening on http://127.0.0.1:3000
 ```
 
-Commit the template together with `assets/ui.generated.css`, so that readers without Node see the same look. To change the fonts or colours of every page instead, edit the `@theme` block in `assets/ui.css` and run `npm run css` again.
+Commit the template together with `assets/ui.generated.css`, so that readers without Node see the same look. To change the fonts or colours of every page instead, edit the `@theme` block in `assets/ui.css` and run `npm run css` again. Links inside articles are the exception: Typography keeps its own colours there, so `@theme` does not change their colour; a `prose-a:` class on `<main>` in `templates/site_base.html` does.
