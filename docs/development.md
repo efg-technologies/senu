@@ -1378,3 +1378,123 @@ exit 0; `cargo fmt --check`, exit 0; `cargo test --locked --lib` (133),
 Not run here: a browser; the coordinator reruns the 12 cases. Also not
 run: clippy, the full test suite, the quickstart, the course checker and
 the snapshot.
+
+## Spec 0005, after: declared operations (EQV-1, MEAS-1, TST-1)
+
+The change is 34c2fd2 (`ops:`), 9598061 (`test:`) and 41260b4 (`docs:`)
+on top of 254044b. Senu now owns `Operation::call` (the permission, then
+the parameter envelope: known keys only, required ones present, strings
+only, never null), `http::Endpoints` (credentials by route kind, method,
+body and target limits, headers and the CSP), the MCP schema built from
+`params`, tool dispatch, the error mapping, and the contract tests in
+`tests/contract.rs`. The application, `src/demo/`, still owns its
+permissions and principals, each operation's business rules and errors,
+its declaration, its page callback and template, which routes and tools
+are listed, and its domain tests. The public pure functions
+`list_projects` and `get_project` still check their permission before
+decoding when called directly.
+
+Checks at 41260b4, run by the coordinator (logs outside the repository):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings` | exit 0 |
+| `cargo test --locked -- --test-threads=2` | 209 passed; all 197 test functions of B kept, and the only changed test body is the escaping guard's, which now walks `src/` recursively |
+| `python3 scripts/test_check_tutorial.py`; `python3 scripts/test_snapshot_site.py` | 20 and 4 tests passed |
+| `scripts/quickstart.sh` | exit 0 |
+| `python3 scripts/check_tutorial.py` | English then Japanese, 100 `ok:` block lines each |
+| `python3 scripts/snapshot_site.py <new dir>` | 22 pages, the stylesheet and THIRD-PARTY-NOTICES.txt |
+| `npm run css`, then `git diff --exit-code -- assets/ui.generated.css` | unchanged |
+| Transport capture before the change and at 41260b4 | 55 HTTP responses (44,429 bytes) and 16 MCP replies (4,040 bytes), byte-identical |
+| Browser: Chrome 154 and Firefox 158 at 1280×800, 375×812 and 320×568 | 48 site cases and 12 protected-page cases passed |
+| CI run 41163788434 on 41260b4 | all 3 jobs succeeded |
+
+Not run: browser zoom. No `Cargo.toml`, `Cargo.lock`, npm, stylesheet,
+Markdown, site, script or CI change since 254044b. An independent review
+found no critical issue in the runtime; its two documentation findings are
+fixed below.
+
+### Measurements (MEAS-1)
+
+Counting rule: non-blank lines; bytes are those lines in UTF-8 plus one
+newline each, comments included. Spans are taken by line index from
+`git show <rev>:<path>`, so a repeated line such as a closing brace is not
+dropped. Before-side changes come from `git diff -U0` and
+`git diff --numstat`. The counter is a private script outside the
+repository; the coordinator, checking it independently, corrected an
+earlier version that excluded lines by content, which dropped identical
+lines such as closing braces and undercounted business Rust as 46.
+
+A1, `get_project` at 41260b4:
+
+| Part | Where | Lines | Bytes |
+|---|---|---|---|
+| Business Rust: arguments, errors, the function | `src/demo/get_project.rs` before `#[cfg(test)]`, without the next two rows | 49 | 1,719 |
+| Declaration metadata | same file, `/// The declaration.` to `const _: ()` | 13 | 545 |
+| View: page callback (4), view struct, template | same file, `src/view.rs`, `templates/project.html` | 21 | 801 |
+| Permission | `src/demo/mod.rs` | 3 | 194 |
+| Module line | `src/demo/mod.rs` | 1 | 21 |
+| Routes | `src/demo/mod.rs` | 2 | 124 |
+| Tool selection | `src/demo/mod.rs` | 1 | 44 |
+| Tests: unit, in the operation's file | `src/demo/get_project.rs` | 133 | 4,312 |
+| Tests: B's integration lines, kept unchanged | `tests/*.rs` | 261 | 10,346 |
+| Tests: error mapping | `src/http.rs` | 9 | 491 |
+| Tests: contract sample | `tests/contract.rs` | 1 | 44 |
+| Compatibility kept in Senu's files: `InvalidId`, `GET_PROJECT_TOOL`, re-export, `ViewProject` | `src/operation.rs`, `src/http.rs`, `src/mcp.rs`, `src/demo/mod.rs` | 10 | 431 |
+| Docs: B's README and AGENTS.md rows, unchanged | 3 files | 23 | 1,684 |
+
+No test was deleted. 48 of B's 261 integration lines (2,100 bytes), the
+two generic `project_routes_*` tests, are now also covered by CT-1 to CT-4
+and are kept. B's side is raw diff additions and this side counts whole
+spans at a revision, so the two totals are not comparable and no overall
+percentage is given. The one comparable scope is the transport binding:
+B's HTTP and MCP changes added 86 and removed 14 non-blank lines (44/3 and
+42/11 in the A1 baseline table); at 41260b4 the application writes 20 for it
+(metadata 13, routes 2, tool 1, page callback 4). Business Rust, the view
+and the tests are counted separately and are not part of that comparison.
+
+A2, `list_projects`, the same spans before (B) and after (41260b4):
+
+| Responsibility | Before | After |
+|---|---|---|
+| HTTP handlers (credentials, query decode, call, render) | 35 lines, 1,594 bytes, `src/http.rs` | moved to Senu (`http::Endpoints`) |
+| HTTP route lines | 2, 99 bytes | 2, 132 bytes, `src/demo/mod.rs` |
+| MCP schema function | 27, 1,108 bytes, `src/mcp.rs` | built by Senu from the declaration |
+| MCP dispatch arm | 2, 137 bytes | 1 tool-selection line, 46 bytes |
+| Declaration metadata | inside the MCP rows | 17, 817 bytes |
+| HTML page callback | inside the handler | 6, 287 bytes |
+| Total | 66 lines, 2,938 bytes | 26 lines, 1,282 bytes |
+
+A3, the test-only Stock application in `tests/contract.rs` (its own state,
+arguments and result types): application code 77 lines (2,410 bytes), its
+contract subject 9 (221), its business test 75 (2,175). It passes the
+contract with no change to Senu code (GEN-1). The file has 973 non-blank
+lines (34,683 bytes) in total.
+
+Diagnostics, never goals: Senu's non-test lines from 254044b to 41260b4
+are `src/operation.rs` 193 to 195, `src/http.rs` 393 to 574, `src/mcp.rs`
+164 to 224, `src/app.rs` 125 to 147 and `templates/serve_base.html` 0 to
+19, together 875 to 1,159 (33,298 to 44,091 bytes). Tests went from 197
+to 209. `Cargo.toml`, `Cargo.lock`, `package.json` and
+`package-lock.json` have no diff. These figures cover this seed only and
+compare it with no other framework.
+
+### Review fixes: migration notes and `Operation::run`
+
+The README migration notes, in both languages, now say that `Permission`
+changed from a two-variant enum to an open newtype: an exhaustive `match`
+over the old variants needs a `_` arm, and
+`use Permission::{ListProjects, ViewProject}` does not compile, because
+associated constants cannot be imported; `demo::{LIST_PROJECTS,
+VIEW_PROJECT}` or the qualified paths work. A standalone `rustc
+--edition 2024` file with the same type confirmed both errors (E0432 and
+E0004) and that a `_` arm compiles. The doc of `Operation::run` now names
+`Operation::call` as the authorized entry point and says that the field is
+public, so a private function name is no authorization boundary; a direct
+call of `run` must check the permission itself. No code changed.
+
+Checks, through the bounded wrapper: `cargo fmt --check`, exit 0;
+`cargo test --locked --test docs_sync --test adapter_http`, 6 and 24
+passed; `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --lib`,
+exit 0. Not run for this documentation-only change: clippy, the full
+suite, the quickstart, the course checker, the snapshot and the browser.

@@ -122,8 +122,13 @@ pub struct Operation<S, T> {
     pub description: &'static str,
     pub permission: Permission,
     pub params: &'static [Param],
-    /// Runs after the permission and the parameter envelope were checked.
-    /// Keep it private, or check the permission in it too.
+    /// The operation's function. [`Operation::call`] is the authorized entry
+    /// point: it runs this only after the permission and the parameter
+    /// envelope were checked, and every adapter goes through it. The field is
+    /// public, so whoever holds the `Operation` can call `run` directly even
+    /// when the function's name is private; that privacy is no authorization
+    /// boundary. A direct call must check the permission itself, in the
+    /// caller or in the function.
     pub run: fn(&S, &Principal, &Args) -> Result<T, OpError>,
 }
 

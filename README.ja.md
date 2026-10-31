@@ -219,8 +219,12 @@ Senu のアダプターは `src/http.rs` と `src/mcp.rs` にあります。
 待ち受けや stdin の読み込みの前に状態 2 で終了します。
 
 移行 (仕様 0005、§9): ルート、本文、ヘッダー、スキーマ、エラーは変わりません。
-`Permission` は newtype になり、新しい名前は `demo::LIST_PROJECTS` と `demo::VIEW_PROJECT`
-ですが、`Permission::ListProjects` と `Permission::ViewProject` もそのまま使えます。
+`Permission` は二つの値の enum から、値を足せる newtype に変わりました。新しい名前は
+`demo::LIST_PROJECTS` と `demo::VIEW_PROJECT` で、型名を付けた `Permission::ListProjects` と
+`Permission::ViewProject` も関連定数としてそのまま使えます。古い二つの値を網羅する
+`match` には `_` の腕が要ります。また関連定数は `use` で取り込めないので、
+`use Permission::{ListProjects, ViewProject}` はコンパイルできません。
+`demo::{LIST_PROJECTS, VIEW_PROJECT}` を取り込むか、型名を付けて書きます。
 `OpError` と `HttpError` は `InvalidSearch` と `InvalidId` を残したまま
 `Invalid { code, phrase }` が加わるので、網羅的な `match` には腕が一つ要ります。
 `AppState` と `McpServer` は状態の型を取り、既定は `Catalogue` です。`http::router`、

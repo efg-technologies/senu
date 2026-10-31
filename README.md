@@ -238,9 +238,14 @@ An invalid route table or tool list makes `senu serve` or `senu mcp` exit
 with status 2 before it binds or reads stdin.
 
 Migration (spec 0005, §9): routes, bodies, headers, schemas and errors are
-unchanged. `Permission` is a newtype; `demo::LIST_PROJECTS` and
-`demo::VIEW_PROJECT` are the new names and `Permission::ListProjects` and
-`Permission::ViewProject` still work. `OpError` and `HttpError` keep
+unchanged. `Permission` was a two-variant enum and is now an open newtype.
+`demo::LIST_PROJECTS` and `demo::VIEW_PROJECT` are the new names, and the
+qualified `Permission::ListProjects` and `Permission::ViewProject` still work
+as associated constants. An exhaustive `match` over the two old variants now
+needs a `_` arm, and `use Permission::{ListProjects, ViewProject}` no longer
+compiles, because associated constants cannot be imported: import
+`demo::{LIST_PROJECTS, VIEW_PROJECT}` or write the qualified paths.
+`OpError` and `HttpError` keep
 `InvalidSearch` and `InvalidId` and gain `Invalid { code, phrase }`, so an
 exhaustive `match` needs a new arm. `AppState` and `McpServer` take a state
 type that defaults to `Catalogue`. `http::router`, `AppState::new`,
