@@ -14,6 +14,26 @@ calls the same function, so all three return the same projects in the same
 order. A test checks that. Senu also serves a small site of Markdown
 articles, which holds a beginner course.
 
+## Aims: minimal, consistent, spec-driven
+
+- **Minimal:** application developers should own as little code,
+  configuration and duplication as possible. Today a new article is one
+  Markdown file, and a change of look is classes in a template plus
+  `npm run css`.
+- **Consistent:** one set of conventions for people and AI tools, kept by
+  `rustfmt`, `clippy -D warnings` and, for the stylesheet, a CI drift gate.
+  These check form; they do not prove that the business rules are right.
+- **Spec-driven:** a spec in [docs/specs/](docs/specs/) comes first, then
+  tests, then code; [the development log](docs/development.md) maps spec
+  0004's acceptance criteria to their tests.
+
+Rust is the foundation for its memory and type safety and its speed, but
+the language alone does not make a program secure or fast. Newer tools,
+such as Tailwind CSS here, are adopted where they serve these aims. Done:
+the shared operation on three transports, the article site and the
+Tailwind UI (spec 0004). Planned, not built: operations declared once for
+all transports ([spec 0005](docs/specs/0005-app-developer-flow.md)).
+
 ## New to Rust? Start with the course
 
 The beginner course is a small site that Senu serves on your own computer;
