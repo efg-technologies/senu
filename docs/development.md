@@ -1447,11 +1447,15 @@ No test was deleted. 48 of B's 261 integration lines (2,100 bytes), the
 two generic `project_routes_*` tests, are now also covered by CT-1 to CT-4
 and are kept. B's side is raw diff additions and this side counts whole
 spans at a revision, so the two totals are not comparable and no overall
-percentage is given. The one comparable scope is the transport binding:
-B's HTTP and MCP changes added 86 and removed 14 non-blank lines (44/3 and
-42/11 in the A1 baseline table); at 41260b4 the application writes 20 for it
-(metadata 13, routes 2, tool 1, page callback 4). Business Rust, the view
-and the tests are counted separately and are not part of that comparison.
+percentage is given. The transport wiring is shown only as a limited
+illustration, not as matching totals or a reduction: B's HTTP and MCP
+changes added 86 and removed 14 non-blank lines in the raw diff (44/3 and
+42/11 in the A1 baseline table), which also include module docs, imports
+and the replaced legacy mapping; at 41260b4 the selected wiring spans the
+application writes are 20 lines (metadata 13, routes 2, tool 1, page
+callback 4), and the 10 compatibility lines in Senu's files are counted in
+their own row. Business Rust, the view and the tests are counted
+separately and are not part of this illustration.
 
 A2, `list_projects`, the same spans before (B) and after (41260b4):
 
