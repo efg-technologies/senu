@@ -1041,3 +1041,26 @@ exited 101 with 5 failures: the three CSP assertions (`'unsafe-inline'`),
 |---|---|---|
 | `cargo clippy --locked --all-targets -- -D warnings` | 0 | |
 | `cargo test --locked -- --test-threads=2` | 0 | 183 passed (181 + 2: every template class has a rule; every page links the stylesheet once without inline style) |
+
+### CI drift gate (§6, CI-1) and build reproducibility (BLD-1)
+
+The `tutorial` job sets up Node 24.22.0 with `actions/setup-node`, pinned
+to 949feb2413d6458794dcd2491c4babbbce0c15c1 (v7.1.0, a verified commit
+read back from the GitHub API), then runs `npm ci`, `npm run css` and
+`git diff --exit-code -- assets/ui.generated.css` before the course.
+
+Local runs in fresh clones of 1f394ea, through the bounded wrapper. Only
+the Node 24.11.1 install has npm here, so both Node versions ran npm
+11.6.2; the 24.22.0 runs put a task-local Node 24.22.0 first on `PATH`.
+CI uses setup-node's own 24.22.0 and its bundled npm.
+
+| Run | Result |
+|---|---|
+| `npm ci --silent && npm run css`, Node 24.11.1, twice | exit 0; output identical to the committed file both times |
+| the same, Node 24.22.0, twice | exit 0; identical (sha256 prefix 4951510e79b848b7 in all four) |
+| gate after committing `bg-white` → `bg-rose-100` in `site_base.html` without `npm run css` | `git diff --exit-code` exit 1 (`assets/ui.generated.css | 2 +-`) |
+| gate after committing the regenerated file | exit 0 |
+
+The same template edit without regenerating also fails `cargo test`,
+because `every_template_class_has_a_rule_in_the_stylesheet` finds no rule
+for the new class. Not run here: the workflow on GitHub.
