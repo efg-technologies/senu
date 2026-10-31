@@ -899,3 +899,42 @@ Run on a3d73be, the last commit before this log entry, with
 
 Not run here: the browser and keyboard check of UI-1, and cloning from
 the public repository, which chapter 02 marks `sh manual`.
+
+
+### Final independent review and browser validation
+
+The final independent review found no blocking scoped defect. It checked
+all ten chapter pairs and 95 fenced blocks per language: metadata and order
+match, Rust and patches are identical, and commands differ only in their
+intended locale paths. Chapter 06's final file equals `src/reading.rs`.
+The first terminal transcript, concepts before commands, home-directory
+navigation, Rust test scaffolding and local stdio trust now read consistently
+in both languages. The remaining startup doc comment was aligned with the
+name-first validation phases; the README's inaccurate "no macros" claim
+was removed. These last edits change documentation only.
+
+The actual Senu binary at a650279 was checked in isolated browser profiles,
+from an empty working directory, using a loopback port and no credentials.
+Chromium 154.0.8037.97 and Firefox 158.0 each passed 24 cases: English and
+Japanese index, first-page, first-note and first-function pages at 1280,
+375 and 320 CSS pixels wide. All 48 cases had one main heading, correct
+language and translation links, no horizontal page overflow, and visible
+keyboard focus. Desktop chapter links were keyboard reachable and mobile
+chapter disclosures opened. Chromium's accessibility snapshot contained the
+main and navigation landmarks; no external requests or HTTP/JavaScript
+errors were observed. Representative screenshots were visually inspected.
+
+Four further cases, both languages in both browsers, passed at a 640 by
+400 CSS viewport with a device-pixel ratio of two (1280 by 800 physical
+pixels). This is scaled-viewport emulation, not a browser-zoom claim.
+The automated attempt to trigger actual Firefox zoom with Ctrl-plus did
+not change the browser's scale. The UI driver therefore exited 1 after its
+48 functional cases; this is a test-driver limitation, not a failed layout
+assertion. Actual browser zoom, physical phones, screen-reader use, macOS,
+WSL, installers and a trial by a first-time learner remain untested.
+
+The final code checks recorded above remain 177 passing Rust test
+functions, zero failures, plus the script regressions and the real course
+runs. The independent reviewer separately ran 17 harmless Python fixtures,
+all passing. Final remote CI and public-clone readback are recorded by the
+release check; this log does not claim a live hosted website.

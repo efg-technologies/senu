@@ -52,7 +52,7 @@ software. It makes no performance or security claims.
   any remote party. There is no MCP over HTTP and no OAuth.
 - **Mutations need more work.** Basic auth is an ambient browser credential,
   so any future write operation needs CSRF protection and a new spec.
-- There are no macros, generators or scaffolding, and no published crate:
+- There are no generators or scaffolding, and no published crate:
   run Senu from a clone of this repository.
 
 ## Quickstart
