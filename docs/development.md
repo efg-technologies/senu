@@ -1639,3 +1639,13 @@ The owner published `senu` 0.2.0 from `b1283e3`, the commit of the tag
 - docs.rs built 0.2.0 with all features. The crate page and the pages of
   `auth::Authenticate`, `http::Endpoints`, `mcp::McpServer`,
   `operation::Operation` and `contract::check` answered 200.
+
+### The site's own domain
+
+The canonical address changed from `https://efg-technologies.github.io/senu/`
+to `https://senu.efg-technologies.com/`, so that `robots.txt`, `sitemap.xml`
+and `llms.txt` sit at the host root, where crawlers look for them. Before
+the change, `python3 scripts/snapshot_site.py --base-url https://senu.efg-technologies.com/ <dir>`
+saved 36 pages with a sitemap of 36 addresses. The browser tool's snapshot
+files under `.playwright-mcp/`, committed by mistake with spec 0006, were
+removed and the directory is now ignored.
