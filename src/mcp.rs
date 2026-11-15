@@ -150,6 +150,8 @@ pub struct McpServer<S> {
     state: S,
     principal: Principal,
     tools: Vec<McpTool<S>>,
+    name: &'static str,
+    version: &'static str,
 }
 
 /// Why [`McpServer::serve_stdio`] stopped with an error.
@@ -190,6 +192,8 @@ impl McpServer<Catalogue> {
             state: catalogue,
             principal,
             tools: crate::demo::tools(),
+            name: "senu",
+            version: env!("CARGO_PKG_VERSION"),
         }
     }
 }
@@ -214,13 +218,24 @@ impl<S> McpServer<S> {
             state,
             principal,
             tools,
+            name: "senu",
+            version: env!("CARGO_PKG_VERSION"),
         })
+    }
+
+    /// Names the server in `initialize`, for example with
+    /// `env!("CARGO_PKG_NAME")` and `env!("CARGO_PKG_VERSION")` of the
+    /// application. Without this the server is `senu` with Senu's version.
+    pub fn with_info(mut self, name: &'static str, version: &'static str) -> Self {
+        self.name = name;
+        self.version = version;
+        self
     }
 
     /// What `initialize` advertises: the tools capability only.
     pub fn info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("senu", env!("CARGO_PKG_VERSION")))
+            .with_server_info(Implementation::new(self.name, self.version))
     }
 
     /// What `tools/list` returns: the listed tools, in order.
