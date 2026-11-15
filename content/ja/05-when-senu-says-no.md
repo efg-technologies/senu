@@ -69,7 +69,7 @@ senu: listening on http://127.0.0.1:3000
 http://127.0.0.1:3000/ja/scratch を開いてください。タグはコードの枠の中に文字として表示され、実行されません。二つ目のターミナルで仕組みがわかります。山括弧が `&lt;` と `&gt;` に変わっています。ブラウザーはこれを `<` と `>` として表示しますが、実行はしません。
 
 ```sh check=html-shown
-curl -s http://127.0.0.1:3000/ja/scratch | grep script
+curl -s http://127.0.0.1:3000/ja/scratch | grep alert
 ```
 
 ```text check=html-shown
