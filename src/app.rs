@@ -87,7 +87,7 @@ pub fn serve<S: Send + Sync + 'static>(
 /// status 2. All names are checked first, then each article's content; errors
 /// follow path order within each phase and are written to stderr.
 pub fn site(config: &SiteConfig, files: &[(&str, &str)]) -> ExitCode {
-    match Site::load(files) {
+    match Site::load_with(files, config.base_url.as_ref()) {
         Ok(site) => listen(config.bind, http::site_router(site)),
         Err(err) => fail(USAGE_OR_CONFIG, &err),
     }

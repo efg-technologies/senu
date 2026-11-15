@@ -38,6 +38,8 @@ pub struct Labels {
     pub other_language: &'static str,
     /// The index of this language.
     pub home: &'static str,
+    /// The Open Graph locale, such as `en_US`.
+    pub locale: &'static str,
     pub site: &'static str,
     pub skip: &'static str,
     pub chapters: &'static str,
@@ -45,10 +47,52 @@ pub struct Labels {
     pub previous: &'static str,
     pub next: &'static str,
     pub index_title: &'static str,
+    /// What Senu is, in one paragraph: the index's lead.
     pub intro: &'static str,
+    /// The same in one sentence of at most 160 characters: the index's
+    /// description for search results.
+    pub description: &'static str,
+    /// The heading above the install command on the index.
+    pub install: &'static str,
+    /// The links under the install command: (text, address).
+    pub links: [(&'static str, &'static str); 3],
+    /// The groups of articles, in the order of [`Section`].
+    pub sections: [SectionLabels; 4],
     pub footer: &'static str,
     /// The text before and after the number of minutes.
     minutes: (&'static str, &'static str),
+}
+
+/// The heading of a group of articles and its introduction on the index.
+#[derive(Debug)]
+pub struct SectionLabels {
+    pub heading: &'static str,
+    pub intro: &'static str,
+}
+
+/// The group an article belongs to, by its number, in display order: the
+/// library guide (10 to 49), the course (00 to 09), the notes (50 to 89)
+/// and the appendices (90 to 99).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Section {
+    Guide,
+    Course,
+    Notes,
+    Appendix,
+}
+
+impl Section {
+    pub const ALL: [Self; 4] = [Self::Guide, Self::Course, Self::Notes, Self::Appendix];
+
+    /// The section of an article number such as `07`.
+    pub fn of(number: &str) -> Self {
+        match number.parse::<u8>().unwrap_or(0) {
+            10..=49 => Self::Guide,
+            50..=89 => Self::Notes,
+            90.. => Self::Appendix,
+            _ => Self::Course,
+        }
+    }
 }
 
 impl Labels {
@@ -59,24 +103,64 @@ impl Labels {
             n => format!("{}{n}{}", self.minutes.0, self.minutes.1),
         }
     }
+
+    pub fn section(&self, section: Section) -> &SectionLabels {
+        &self.sections[section as usize]
+    }
 }
+
+const REPOSITORY: &str = "https://github.com/efg-technologies/senu";
+const DOCS_RS: &str = "https://docs.rs/senu";
+const CRATES_IO: &str = "https://crates.io/crates/senu";
 
 pub static ENGLISH: Labels = Labels {
     lang: "en",
     other_lang: "ja",
     other_language: "日本語",
     home: "/",
-    site: "Senu notes",
+    locale: "en_US",
+    site: "Senu",
     skip: "Skip to the article",
-    chapters: "Chapters",
+    chapters: "Contents",
     pager: "Previous and next",
     previous: "Previous",
     next: "Next",
-    index_title: "Build a small notes site with Rust",
-    intro: "A course for complete beginners: you run this site on your own computer, \
-            add notes to it in Markdown, and then rebuild a small piece of the Rust code \
-            behind it. You need no Rust, only a little JavaScript.",
-    footer: "Senu is an experimental seed, not production software. \
+    index_title: "Senu: one Rust function as a web page, a JSON API and an MCP tool",
+    intro: "Senu is an open-source Rust library. You declare a read-only function once, \
+            with its permission and parameters, and Senu serves it as an HTML page, \
+            a JSON API and an MCP tool for AI assistants, with the same authentication order, \
+            the same errors and one contract test suite for all three. \
+            It is built on Axum, Askama and the official rmcp SDK.",
+    description: "Senu is a Rust library that serves one declared function as an HTML page, \
+                  a JSON API and an MCP tool, with shared authentication, errors and contract tests.",
+    install: "Add it to a project",
+    links: [
+        ("Source on GitHub", REPOSITORY),
+        ("API reference on docs.rs", DOCS_RS),
+        ("Crate on crates.io", CRATES_IO),
+    ],
+    sections: [
+        SectionLabels {
+            heading: "Library guide",
+            intro: "How to declare an operation, authenticate callers, expose MCP tools, \
+                    deploy and test. Start here if you already write Rust.",
+        },
+        SectionLabels {
+            heading: "Course: learn Rust with Senu",
+            intro: "A course for complete beginners: you run this site on your own computer, \
+                    add notes to it in Markdown, and then rebuild a small piece of the Rust code \
+                    behind it. You need no Rust, only a little JavaScript.",
+        },
+        SectionLabels {
+            heading: "Notes",
+            intro: "Sample notes, and the place where the course has you add your own.",
+        },
+        SectionLabels {
+            heading: "Appendices",
+            intro: "Optional tours of the demo catalogue, its JSON API and MCP.",
+        },
+    ],
+    footer: "Senu is open source under the Apache-2.0 license and is not audited security software. \
              Each page here is a Markdown file in content/en/ of the Senu repository.",
     minutes: ("About ", " min read"),
 };
@@ -86,17 +170,48 @@ pub static JAPANESE: Labels = Labels {
     other_lang: "en",
     other_language: "English",
     home: "/ja/",
-    site: "Senu ノート",
+    locale: "ja_JP",
+    site: "Senu",
     skip: "本文へ移動",
-    chapters: "章の一覧",
-    pager: "前後の章",
+    chapters: "目次",
+    pager: "前後のページ",
     previous: "前へ",
     next: "次へ",
-    index_title: "Rust で小さなノートサイトを作る",
-    intro: "まったくの初心者向けの講座です。このサイトを自分のコンピューターで動かし、\
-            Markdown でノートを書き足し、最後にサイトを支える Rust のコードを少しだけ作り直します。\
-            Rust の知識は要りません。JavaScript を少し知っていれば十分です。",
-    footer: "Senu は実験的な試作で、本番用のソフトウェアではありません。\
+    index_title: "Senu: Rust の関数ひとつを Web ページ・JSON API・MCP ツールに",
+    intro: "Senu はオープンソースの Rust ライブラリです。読み取り専用の関数を、権限とパラメータと一緒に一度だけ宣言すると、\
+            Senu がそれを HTML ページ、JSON API、AI アシスタント向けの MCP ツールとして提供します。\
+            認証の順序もエラーも 3 つで同じで、同じ契約テストで確かめられます。\
+            Axum、Askama、公式の rmcp SDK の上に作られています。",
+    description: "Senu は、一度宣言した関数を HTML ページ・JSON API・MCP ツールとして提供する Rust ライブラリです。\
+                  認証・エラー・契約テストを 3 つで共有します。",
+    install: "プロジェクトに追加する",
+    links: [
+        ("GitHub のソースコード", REPOSITORY),
+        ("docs.rs の API リファレンス", DOCS_RS),
+        ("crates.io のクレート", CRATES_IO),
+    ],
+    sections: [
+        SectionLabels {
+            heading: "ライブラリガイド",
+            intro: "操作の宣言、呼び出し元の認証、MCP ツールの公開、デプロイ、テストの方法です。\
+                    すでに Rust を書く人はここから始めてください。",
+        },
+        SectionLabels {
+            heading: "講座: Senu で学ぶ Rust",
+            intro: "まったくの初心者向けの講座です。このサイトを自分のコンピューターで動かし、\
+                    Markdown でノートを書き足し、最後にサイトを支える Rust のコードを少しだけ作り直します。\
+                    Rust の知識は要りません。JavaScript を少し知っていれば十分です。",
+        },
+        SectionLabels {
+            heading: "ノート",
+            intro: "サンプルのノートです。講座では、ここに自分のノートを足します。",
+        },
+        SectionLabels {
+            heading: "付録",
+            intro: "デモのカタログ、JSON API、MCP を見て回る任意の章です。",
+        },
+    ],
+    footer: "Senu は Apache-2.0 ライセンスのオープンソースで、監査済みのセキュリティソフトウェアではありません。\
              ここの各ページは、Senu リポジトリの content/ja/ にある Markdown ファイルです。",
     minutes: ("約 ", " 分で読めます"),
 };
@@ -109,16 +224,41 @@ pub struct NavLink {
     pub current: bool,
 }
 
+/// One group of the contents: a section's labels and its articles.
+#[derive(Clone, Debug)]
+pub struct NavGroup {
+    pub labels: &'static SectionLabels,
+    pub links: Vec<NavLink>,
+}
+
+/// The absolute addresses and structured data of a page, present only when
+/// the site knows its public base URL (spec 0006, §6).
+#[derive(Debug)]
+pub struct Seo {
+    pub canonical: String,
+    /// `hreflang` and address of every language version, then `x-default`.
+    pub alternates: Vec<(&'static str, String)>,
+    /// The Open Graph type: `website` or `article`.
+    pub kind: &'static str,
+    /// The JSON-LD script element.
+    pub json_ld: TrustedHtml,
+}
+
 /// What the index and article templates share.
 #[derive(Debug)]
 pub struct Frame<'a> {
     pub labels: &'static Labels,
     pub title: &'a str,
+    /// The text of the `<title>` element.
+    pub head_title: &'a str,
+    /// The page's description, as plain text.
+    pub description: &'a str,
     /// The language link: the translation, or the other index.
     pub alternate: &'a str,
-    pub nav: &'a [NavLink],
+    pub nav: &'a [NavGroup],
     pub previous: Option<&'a NavLink>,
     pub next: Option<&'a NavLink>,
+    pub seo: Option<&'a Seo>,
 }
 
 #[derive(Template)]

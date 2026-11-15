@@ -61,9 +61,9 @@ fn header(headers: &HeaderMap, name: header::HeaderName) -> Option<&str> {
 #[tokio::test]
 async fn pages_are_served_as_html_with_strict_headers() {
     for (target, h1) in [
-        ("/", "<h1>Build a small notes site with Rust</h1>"),
+        ("/", "<h1>Senu: one Rust function as a web page, a JSON API and an MCP tool</h1>"),
         ("/first-note", "<h1>First note</h1>"),
-        ("/ja/", "<h1>Rust で小さなノートサイトを作る</h1>"),
+        ("/ja/", "<h1>Senu: Rust の関数ひとつを Web ページ・JSON API・MCP ツールに</h1>"),
         ("/ja/first-note", "<h1>最初のノート</h1>"),
         ("/x", "<h1>X</h1>"),
     ] {

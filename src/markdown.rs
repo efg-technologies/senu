@@ -30,6 +30,22 @@ impl TrustedHtml {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// One `<script type="application/ld+json">` element that holds `data`
+    /// (spec 0006, §6). `serde_json` writes the JSON, and every `<`, `>`
+    /// and `&` in it becomes a `\u` escape, so no string in `data` can end
+    /// the element or start markup. This and [`render`] are the only ways
+    /// to build a `TrustedHtml`.
+    pub fn json_ld(data: &serde_json::Value) -> Self {
+        let json = data
+            .to_string()
+            .replace('<', "\\u003c")
+            .replace('>', "\\u003e")
+            .replace('&', "\\u0026");
+        Self(format!(
+            "<script type=\"application/ld+json\">{json}</script>"
+        ))
+    }
 }
 
 impl fmt::Display for TrustedHtml {
@@ -61,6 +77,116 @@ pub struct Article {
     pub body: TrustedHtml,
     /// A rough word count of the body outside code blocks.
     pub words: usize,
+}
+
+/// The plain text that the page metadata is built from (spec 0006, §6).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Outline {
+    /// The first paragraph after the title, as plain text; empty when the
+    /// article has none.
+    pub summary: String,
+    /// Each level-2 heading with the first paragraph that follows it.
+    pub sections: Vec<(String, String)>,
+}
+
+/// Reads the [`Outline`] of an article that [`render`] accepted. Only text
+/// is collected, never markup: emphasis and links give their text, inline
+/// code and raw HTML are literal, and code blocks, lists and tables are
+/// skipped. Every consumer escapes the result.
+pub fn outline(text: &str) -> Outline {
+    enum Target {
+        None,
+        Heading,
+        Paragraph,
+    }
+    let mut outline = Outline::default();
+    let (mut target, mut buffer) = (Target::None, String::new());
+    // Nesting depth inside blocks whose paragraphs do not count.
+    let mut skipped = 0_usize;
+    let mut seen_title = false;
+    // A level-2 heading that still waits for its paragraph.
+    let mut open_section = false;
+    for event in Parser::new_ext(text, OPTIONS) {
+        match event {
+            Event::Start(
+                Tag::CodeBlock(_)
+                | Tag::HtmlBlock
+                | Tag::List(_)
+                | Tag::Table(_)
+                | Tag::BlockQuote(_),
+            ) => skipped += 1,
+            Event::End(
+                TagEnd::CodeBlock
+                | TagEnd::HtmlBlock
+                | TagEnd::List(_)
+                | TagEnd::Table
+                | TagEnd::BlockQuote(_),
+            ) => skipped = skipped.saturating_sub(1),
+            _ if skipped > 0 => {}
+            Event::Start(Tag::Heading { level, .. }) => {
+                buffer.clear();
+                open_section = false;
+                target = if level == HeadingLevel::H2 {
+                    Target::Heading
+                } else {
+                    Target::None
+                };
+            }
+            Event::End(TagEnd::Heading(level)) => {
+                if level == HeadingLevel::H1 {
+                    seen_title = true;
+                }
+                if matches!(target, Target::Heading) {
+                    outline.sections.push((tidy(&buffer), String::new()));
+                    open_section = true;
+                }
+                target = Target::None;
+            }
+            Event::Start(Tag::Paragraph) if seen_title => {
+                buffer.clear();
+                target = Target::Paragraph;
+            }
+            Event::End(TagEnd::Paragraph) if matches!(target, Target::Paragraph) => {
+                let paragraph = tidy(&buffer);
+                if outline.summary.is_empty() {
+                    outline.summary = paragraph.clone();
+                }
+                if open_section && let Some(section) = outline.sections.last_mut() {
+                    section.1 = paragraph;
+                    open_section = false;
+                }
+                target = Target::None;
+            }
+            Event::Text(text) | Event::Code(text) | Event::InlineHtml(text) => {
+                if !matches!(target, Target::None) {
+                    buffer.push_str(&text);
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => buffer.push(' '),
+            _ => {}
+        }
+    }
+    outline
+}
+
+/// Collapses every run of whitespace into one space.
+fn tidy(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `text` in at most `limit` characters: whole when it fits, otherwise cut
+/// at the last space near the end, or between characters when there is
+/// none, as in Japanese, and closed with an ellipsis.
+pub fn shorten(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    let kept: String = text.chars().take(limit.saturating_sub(1)).collect();
+    let cut = match kept.rfind(' ') {
+        Some(space) if kept[space..].chars().count() <= 24 => &kept[..space],
+        _ => kept.as_str(),
+    };
+    format!("{}…", cut.trim_end_matches([',', ';', ':', ' ', '、']))
 }
 
 /// Why an article was refused, at a byte offset of its text.
@@ -807,5 +933,67 @@ mod tests {
         // 11 characters in the first paragraph and 2 in the second, halved
         // and rounded down, plus one inline code span.
         assert_eq!(article.words, 13 / 2 + 1);
+    }
+
+    // Spec 0006, §6: the outline, the description and JSON-LD.
+
+    #[test]
+    fn the_outline_holds_the_first_paragraph_and_each_h2_with_its_paragraph() {
+        let text = "# Title with `code`\n\n\
+                    First *paragraph* with [a link](https://example.com/) and `code`\nover two lines.\n\n\
+                    Second paragraph.\n\n\
+                    ## What is it?\n\n```sh\nnot this\n```\n\n- nor this\n\n\
+                    The **answer** <b>plain</b>.\n\nMore.\n\n\
+                    ### Deeper\n\nSkipped for sections.\n\n\
+                    ## No paragraph\n\n## Last one\n\nEnd.\n";
+        let outline = outline(text);
+        assert_eq!(
+            outline.summary,
+            "First paragraph with a link and code over two lines."
+        );
+        assert_eq!(
+            outline.sections,
+            vec![
+                (
+                    "What is it?".to_owned(),
+                    "The answer <b>plain</b>.".to_owned()
+                ),
+                ("No paragraph".to_owned(), String::new()),
+                ("Last one".to_owned(), "End.".to_owned()),
+            ]
+        );
+        assert_eq!(super::outline("# Only a title\n"), Outline::default());
+        assert_eq!(super::outline("# T\n\n```\ncode\n```\n").summary, "");
+    }
+
+    #[test]
+    fn shorten_cuts_at_a_word_or_between_characters() {
+        assert_eq!(shorten("short", 10), "short");
+        assert_eq!(shorten("exactly ten", 11), "exactly ten");
+        assert_eq!(shorten("one two three four", 12), "one two…");
+        assert_eq!(shorten("one, two three four", 5), "one…");
+        let japanese = "あ".repeat(200);
+        let cut = shorten(&japanese, 160);
+        assert_eq!(cut.chars().count(), 160);
+        assert!(cut.ends_with('…'));
+        let long_word = "a".repeat(300);
+        assert_eq!(shorten(&long_word, 160).chars().count(), 160);
+    }
+
+    #[test]
+    fn json_ld_cannot_end_its_script_element() {
+        let data = serde_json::json!({
+            "name": "</script><script>alert(1)</script>",
+            "text": "a & b <!-- c --> \"quoted\" \u{2028}",
+        });
+        let element = TrustedHtml::json_ld(&data);
+        let text = element.as_str();
+        let inner = text
+            .strip_prefix("<script type=\"application/ld+json\">")
+            .and_then(|rest| rest.strip_suffix("</script>"))
+            .expect("one script element");
+        assert!(!inner.contains(['<', '>', '&']), "{inner}");
+        let parsed: serde_json::Value = serde_json::from_str(inner).expect("valid JSON");
+        assert_eq!(parsed, data);
     }
 }

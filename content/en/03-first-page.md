@@ -51,7 +51,7 @@ curl -s http://127.0.0.1:3000/ | grep "<h1>"
 It prints the heading of the start page:
 
 ```text check=title
-<h1>Build a small notes site with Rust</h1>
+<h1>Senu: one Rust function as a web page, a JSON API and an MCP tool</h1>
 ```
 
 The course uses this second terminal to show the effect of each step in text. You can always look at the same page in the browser instead.

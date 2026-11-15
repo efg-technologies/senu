@@ -55,8 +55,8 @@ fn site_serves_the_embedded_articles_from_an_empty_directory() {
         reply
     };
     for (target, title) in [
-        ("/", "Build a small notes site with Rust".to_owned()),
-        ("/ja/", "Rust で小さなノートサイトを作る".to_owned()),
+        ("/", "Senu: one Rust function as a web page, a JSON API and an MCP tool".to_owned()),
+        ("/ja/", "Senu: Rust の関数ひとつを Web ページ・JSON API・MCP ツールに".to_owned()),
         ("/start", title_of("content/en/01-start.md")),
         ("/ja/start", title_of("content/ja/01-start.md")),
     ] {
