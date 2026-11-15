@@ -95,7 +95,7 @@ async fn api_mcp_and_html_match_the_operation_for_the_spec_queries() {
         assert_eq!(html_items(&page), expected, "HTML for {q:?}");
 
         let request = CallToolRequestParams::new(TOOL_NAME).with_arguments(args.clone());
-        let result = mcp.call(&request).expect("a tool result");
+        let result = mcp.call(&request).await.expect("a tool result");
         assert_eq!(result.is_error, Some(false), "MCP for {q:?}");
         let structured = result.structured_content.expect("structuredContent");
         assert_eq!(json_items(&structured), expected, "MCP for {q:?}");
@@ -129,7 +129,7 @@ async fn api_mcp_and_html_match_get_project() {
         .await;
         assert_eq!(html_project(&page), expected, "HTML for {id}");
         let request = CallToolRequestParams::new(GET_PROJECT_TOOL).with_arguments(args);
-        let result = mcp.call(&request).expect("a tool result");
+        let result = mcp.call(&request).await.expect("a tool result");
         assert_eq!(result.is_error, Some(false), "MCP for {id}");
         assert_eq!(result.structured_content, Some(api), "MCP for {id}");
     }

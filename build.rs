@@ -17,11 +17,17 @@ fn main() {
     println!("cargo::rerun-if-changed=content");
     println!("cargo::rerun-if-changed=build.rs");
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("set by Cargo"));
-    let paths = match discover::discover(&manifest.join("content")) {
-        Ok(paths) => paths,
-        Err(message) => {
-            eprintln!("{message}");
-            std::process::exit(1);
+    // Without the `demo` feature there is no site, so nothing is embedded
+    // and the directory is not even read.
+    let paths = if std::env::var_os("CARGO_FEATURE_DEMO").is_none() {
+        Vec::new()
+    } else {
+        match discover::discover(&manifest.join("content")) {
+            Ok(paths) => paths,
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
         }
     };
     let mut code = String::from("pub static EMBEDDED: &[(&str, &str)] = &[\n");

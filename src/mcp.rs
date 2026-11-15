@@ -1,16 +1,18 @@
 //! The MCP adapter: the application's explicit tool list over stdio.
 //!
 //! Under the MCP authorization spec a stdio server takes its credentials from
-//! the environment. `senu mcp --enable-mcp` validates `SENU_MCP_TOKEN` (see
-//! [`crate::config::mcp_config`]) before reading stdin and then binds every
-//! call to the server-side `demo-mcp` principal. That trusts the local
-//! process that launched Senu and its environment; it does not authenticate
-//! any remote party.
+//! the environment. The application validates whatever it needs there
+//! before it starts the server (the demo's `senu mcp --enable-mcp` checks
+//! `SENU_MCP_TOKEN`) and then binds every call to one server-side
+//! principal. That trusts the local process that launched the server and
+//! its environment; it does not authenticate any remote party.
 //!
 //! Each tool is an operation that the application lists with [`tool`]; its
 //! JSON Schema is built from the operation's parameters. Nothing is exposed
 //! automatically, and no tool macros or reflection are used.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use rmcp::model::{
@@ -23,20 +25,36 @@ use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
+#[cfg(feature = "demo")]
 use crate::catalogue::Catalogue;
+#[cfg(feature = "demo")]
 use crate::demo::{get_project, list_projects};
 use crate::operation::{Args, InvalidDeclaration, OpError, Operation, Param, Principal};
 
 /// The name of the `list_projects` tool.
+#[cfg(feature = "demo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "demo")))]
 pub const TOOL_NAME: &str = list_projects::OPERATION.name;
 
 /// The name of the `get_project` tool.
+#[cfg(feature = "demo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "demo")))]
 pub const GET_PROJECT_TOOL: &str = get_project::OPERATION.name;
 
-/// What a listed tool runs: its operation, with the result already JSON so
-/// that one list can hold operations with different result types.
-type Call<S> =
-    Box<dyn Fn(&S, &Principal, &Args) -> Result<serde_json::Result<Value>, OpError> + Send + Sync>;
+/// A tool's outcome: the operation's result already as JSON, so that one
+/// list can hold operations with different result types.
+type Outcome = Result<serde_json::Result<Value>, OpError>;
+
+/// What a listed tool runs.
+type Call<S> = Box<
+    dyn for<'a> Fn(
+            &'a S,
+            &'a Principal,
+            &'a Args,
+        ) -> Pin<Box<dyn Future<Output = Outcome> + Send + 'a>>
+        + Send
+        + Sync,
+>;
 
 /// One listed tool: its schema and its operation.
 pub struct McpTool<S> {
@@ -56,8 +74,8 @@ impl<S> McpTool<S> {
 /// Lists `operation` as a read-only tool of the same name.
 pub fn tool<S, T>(operation: &'static Operation<S, T>) -> McpTool<S>
 where
-    S: 'static,
-    T: Serialize + 'static,
+    S: Sync + 'static,
+    T: Serialize + Send + 'static,
 {
     McpTool {
         name: operation.name,
@@ -69,9 +87,12 @@ where
         .with_annotations(ToolAnnotations::new().read_only(true)),
         invalid: operation.check().err(),
         call: Box::new(move |state, principal, args| {
-            operation
-                .call(state, principal, args)
-                .map(|result| serde_json::to_value(&result))
+            Box::pin(async move {
+                operation
+                    .call(state, principal, args)
+                    .await
+                    .map(|result| serde_json::to_value(&result))
+            })
         }),
     }
 }
@@ -104,8 +125,11 @@ fn input_schema(params: &[Param]) -> Map<String, Value> {
 /// A tool list that Senu refuses. `senu mcp` prints it and exits with
 /// status 2 before reading stdin.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ToolError {
+    /// The tool is listed twice.
     Duplicate(&'static str),
+    /// The tool's operation has invalid metadata.
     Operation(InvalidDeclaration),
 }
 
@@ -122,13 +146,37 @@ impl std::error::Error for ToolError {}
 
 /// The MCP server state: the application's state, the principal bound at
 /// startup and the listed tools.
-pub struct McpServer<S = Catalogue> {
+pub struct McpServer<S> {
     state: S,
     principal: Principal,
     tools: Vec<McpTool<S>>,
 }
 
-impl McpServer {
+/// Why [`McpServer::serve_stdio`] stopped with an error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ServeError {
+    /// The `initialize` exchange failed.
+    Initialize,
+    /// The server stopped for a reason other than the client closing the
+    /// connection.
+    Stopped,
+}
+
+impl std::fmt::Display for ServeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Initialize => "senu: MCP initialization failed",
+            Self::Stopped => "senu: the MCP server stopped unexpectedly",
+        })
+    }
+}
+
+impl std::error::Error for ServeError {}
+
+#[cfg(feature = "demo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "demo")))]
+impl McpServer<Catalogue> {
     /// The demo server, bound to `demo-mcp`.
     pub fn new(catalogue: Catalogue) -> Self {
         Self::with_principal(catalogue, Principal::demo_mcp())
@@ -183,13 +231,13 @@ impl<S> McpServer<S> {
     /// Answers `tools/call`. An unknown tool is a JSON-RPC invalid-params
     /// error (-32602); an operation error is a tool result with `isError`.
     /// Neither repeats the caller's input.
-    pub fn call(&self, request: &CallToolRequestParams) -> Result<CallToolResult, ErrorData> {
+    pub async fn call(&self, request: &CallToolRequestParams) -> Result<CallToolResult, ErrorData> {
         let Some(tool) = self.tools.iter().find(|tool| tool.name == request.name) else {
             return Err(ErrorData::invalid_params("unknown tool", None));
         };
         let no_arguments = Map::new();
         let args = request.arguments.as_ref().unwrap_or(&no_arguments);
-        match (tool.call)(&self.state, &self.principal, args) {
+        match (tool.call)(&self.state, &self.principal, args).await {
             Ok(value) => value
                 .map(CallToolResult::structured)
                 .map_err(|_| ErrorData::internal_error("internal", None)),
@@ -200,7 +248,31 @@ impl<S> McpServer<S> {
     }
 }
 
+impl<S: Send + Sync + 'static> McpServer<S> {
+    /// Serves the tools over this process's stdin and stdout until the
+    /// client closes stdin, which is `Ok(())`, also before `initialize`.
+    /// Stdout then carries only JSON-RPC, so the application must not print
+    /// to it. Call this on a Tokio runtime.
+    pub async fn serve_stdio(self) -> Result<(), ServeError> {
+        use rmcp::ServiceExt as _;
+        use rmcp::service::{QuitReason, ServerInitializeError};
+
+        let running = match self.serve(rmcp::transport::io::stdio()).await {
+            Ok(running) => running,
+            // EOF before `initialize` is a clean shutdown, not an error.
+            Err(ServerInitializeError::ConnectionClosed(_)) => return Ok(()),
+            Err(_) => return Err(ServeError::Initialize),
+        };
+        match running.waiting().await {
+            Ok(QuitReason::Closed | QuitReason::Cancelled) => Ok(()),
+            _ => Err(ServeError::Stopped),
+        }
+    }
+}
+
 /// The demo's tools, in this order.
+#[cfg(feature = "demo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "demo")))]
 pub fn tools() -> Vec<Tool> {
     McpServer::new(Catalogue::demo()).tools()
 }
@@ -223,7 +295,7 @@ impl<S: Send + Sync + 'static> ServerHandler for McpServer<S> {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        self.call(&request).map(CallToolResponse::from)
+        self.call(&request).await.map(CallToolResponse::from)
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {

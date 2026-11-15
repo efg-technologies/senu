@@ -51,6 +51,14 @@ pub fn committed_stylesheet() -> String {
     .expect("assets/ui.generated.css")
 }
 
+/// Runs a future to completion, for tests that are not asynchronous.
+pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("a runtime")
+        .block_on(future)
+}
+
 pub fn env(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
     pairs
         .iter()

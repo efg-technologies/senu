@@ -3,16 +3,20 @@
 //! The application lists its routes in an [`Endpoints`] table. Every
 //! request to a declared route passes through the same steps, in this
 //! order: size limits, routing (unknown paths are 404, methods other than
-//! GET are 405), exactly one credential (Basic for HTML, Bearer for the
-//! API), the server-selected principal, [`Operation::call`] (permission,
-//! then the parameter envelope, then the operation), and finally the JSON
-//! body or the page with its CSP. The query string is parsed only after
+//! GET are 405), the surface's [`Authenticate`] implementation, which
+//! yields the server-side principal, [`Operation::call`] (permission, then
+//! the parameter envelope, then the operation), and finally the JSON body
+//! or the page with its CSP. The query string is parsed only after
 //! authentication succeeds, and it is never searched for credentials. A
 //! `custom` route gets the limits and headers but no authentication.
 //!
-//! `senu site` uses a separate router with the same size limits and
-//! response headers but no authentication: one handler looks the raw path
-//! up in the pre-rendered pages (spec 0003, §6).
+//! [`Endpoints::into_router`] returns a plain [`axum::Router`]. Bind it
+//! where you like and add your own tower layers for TLS termination,
+//! logging, timeouts and rate limits; Senu adds none of those.
+//!
+//! With the `demo` feature, `senu site` uses a separate router with the
+//! same size limits and response headers but no authentication: one
+//! handler looks the raw path up in the pre-rendered pages (spec 0003, §6).
 //!
 //! Both routers also serve the embedded stylesheet at one exact path under
 //! the reserved prefix `/_senu/`, without credentials (spec 0004, §4).
@@ -23,23 +27,34 @@ use axum::Router;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
-use axum::response::{Html, IntoResponse, Json, Response};
+#[cfg(feature = "demo")]
+use axum::response::Html;
+use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{MethodRouter, any};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::auth::{Secret, basic_matches, bearer_matches};
+use crate::auth::Authenticate;
+#[cfg(feature = "demo")]
+use crate::auth::{Basic, Bearer};
+#[cfg(feature = "demo")]
 use crate::catalogue::Catalogue;
+#[cfg(feature = "demo")]
 use crate::config::ServeConfig;
-use crate::operation::{Args, InvalidDeclaration, OpError, Operation, Param, Principal};
+#[cfg(feature = "demo")]
+use crate::operation::Principal;
+use crate::operation::{Args, InvalidDeclaration, OpError, Operation, Param};
+#[cfg(feature = "demo")]
 use crate::site::Site;
 
 /// Longest accepted request target (path plus query), in bytes.
 pub const MAX_TARGET_BYTES: usize = 2048;
 
-const BASIC_CHALLENGE: &str = "Basic realm=\"senu\", charset=\"UTF-8\"";
-const BEARER_CHALLENGE: &str = "Bearer realm=\"senu\"";
-const HTML_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+/// The `Content-Security-Policy` of every HTML page unless
+/// [`Endpoints::html_csp`] replaces it: no scripts, images or frames, only
+/// same-origin stylesheets and form targets.
+pub const DEFAULT_HTML_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+#[cfg(feature = "demo")]
 const SITE_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'";
 
 /// The only path of the stylesheet, which `npm run css` compiles from
@@ -47,19 +62,52 @@ const SITE_CSP: &str = "default-src 'none'; style-src 'self'; form-action 'none'
 const STYLESHEET_PATH: &str = "/_senu/ui.css";
 const STYLESHEET: &str = include_str!("../assets/ui.generated.css");
 
-/// Everything the router needs: the application's state `S`, and the
-/// principals that server code binds to one credential each.
-#[derive(Debug)]
-pub struct AppState<S = Catalogue> {
+/// Everything the router needs: the application's state `S` and one
+/// authenticator per surface.
+pub struct AppState<S> {
     state: S,
-    web_user: Secret,
-    web_password: Secret,
-    web_principal: Principal,
-    api_token: Secret,
-    api_principal: Principal,
+    html: Option<Arc<dyn Authenticate>>,
+    api: Option<Arc<dyn Authenticate>>,
+    html_csp: HeaderValue,
 }
 
-impl AppState {
+impl<S> std::fmt::Debug for AppState<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("html_auth", &self.html.is_some())
+            .field("api_auth", &self.api.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Builds an [`AppState`]: the state, then the authenticators.
+pub struct AppStateBuilder<S> {
+    app: AppState<S>,
+}
+
+impl<S> AppStateBuilder<S> {
+    /// Who may open the HTML pages. Without it, a table with an HTML route
+    /// is refused.
+    pub fn html_auth(mut self, authenticator: impl Authenticate) -> Self {
+        self.app.html = Some(Arc::new(authenticator));
+        self
+    }
+
+    /// Who may call the JSON API. Without it, a table with an API route is
+    /// refused.
+    pub fn api_auth(mut self, authenticator: impl Authenticate) -> Self {
+        self.app.api = Some(Arc::new(authenticator));
+        self
+    }
+
+    /// The finished state.
+    pub fn build(self) -> AppState<S> {
+        self.app
+    }
+}
+
+#[cfg(feature = "demo")]
+impl AppState<Catalogue> {
     /// The demo state: `demo-web` behind Basic, `demo-api` behind Bearer.
     pub fn new(catalogue: Catalogue, config: &ServeConfig) -> Self {
         Self::with_principals(
@@ -72,31 +120,54 @@ impl AppState {
 }
 
 impl<S> AppState<S> {
-    /// Binds principals to the configured credentials. Tests use this to
-    /// inject a principal without permissions.
+    /// Starts from the application's state, with no authenticator.
+    pub fn builder(state: S) -> AppStateBuilder<S> {
+        AppStateBuilder {
+            app: Self {
+                state,
+                html: None,
+                api: None,
+                html_csp: HeaderValue::from_static(DEFAULT_HTML_CSP),
+            },
+        }
+    }
+
+    /// Binds principals to the demo's configured credentials: Basic for
+    /// HTML and Bearer for the API. Tests use this to inject a principal
+    /// without permissions.
+    #[cfg(feature = "demo")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "demo")))]
     pub fn with_principals(
         state: S,
         config: &ServeConfig,
         web_principal: Principal,
         api_principal: Principal,
     ) -> Self {
-        Self {
-            state,
-            web_user: config.web_user.clone(),
-            web_password: config.web_password.clone(),
-            web_principal,
-            api_token: config.api_token.clone(),
-            api_principal,
-        }
+        Self::builder(state)
+            .html_auth(Basic::new(
+                config.web_user.clone(),
+                config.web_password.clone(),
+                web_principal,
+            ))
+            .api_auth(Bearer::new(config.api_token.clone(), api_principal))
+            .build()
     }
 
     /// The application's state, for `custom` routes.
     pub fn state(&self) -> &S {
         &self.state
     }
+
+    fn authenticator(&self, surface: Surface) -> Option<&Arc<dyn Authenticate>> {
+        match surface {
+            Surface::Html => self.html.as_ref(),
+            Surface::Api => self.api.as_ref(),
+        }
+    }
 }
 
-type Shared<S> = Arc<AppState<S>>;
+/// The state of a `custom` route's handler: `State<Shared<S>>`.
+pub type Shared<S> = Arc<AppState<S>>;
 
 /// Builds the demo's router from [`crate::demo::endpoints`]. There is no
 /// other endpoint, and in particular no MCP over HTTP.
@@ -105,7 +176,9 @@ type Shared<S> = Arc<AppState<S>>;
 ///
 /// Never for the demo's table, which the tests check. `senu serve` uses
 /// [`Endpoints::into_router`], which returns the error instead.
-pub fn router(state: AppState) -> Router {
+#[cfg(feature = "demo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "demo")))]
+pub fn router(state: AppState<Catalogue>) -> Router {
     crate::demo::endpoints()
         .into_router(state)
         .expect("the demo's route table is valid")
@@ -117,22 +190,28 @@ pub type View<T> = fn(&Args, &T) -> Result<String, askama::Error>;
 
 /// What a route of an [`Endpoints`] table is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Kind {
-    /// An HTML page behind Basic authentication.
+    /// An HTML page behind the HTML authenticator.
     Html,
-    /// JSON under `/api/` behind Bearer authentication.
+    /// JSON under `/api/` behind the API authenticator.
     Api,
     /// The application's own handler, with no automatic authentication.
     Custom,
+    /// A public static file.
+    Asset,
 }
 
 /// One row of an [`Endpoints`] table, as the contract tests read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Declared {
+    /// The exact path.
     pub path: &'static str,
+    /// Which adapter serves it.
     pub kind: Kind,
-    /// The operation's name; `None` for a custom route.
+    /// The operation's name; `None` for a custom route or an asset.
     pub operation: Option<&'static str>,
+    /// The operation's parameters; empty for a custom route or an asset.
     pub params: &'static [Param],
 }
 
@@ -140,11 +219,14 @@ pub struct Declared {
 /// nothing; only the paths listed here are routed.
 pub struct Endpoints<S> {
     routes: Vec<Route<S>>,
+    html_csp: &'static str,
 }
 
 struct Route<S> {
     declared: Declared,
     invalid: Option<InvalidDeclaration>,
+    /// An asset's content type, checked with the table.
+    content_type: Option<&'static str>,
     handler: MethodRouter<Shared<S>>,
 }
 
@@ -155,35 +237,86 @@ impl<S: Send + Sync + 'static> Default for Endpoints<S> {
 }
 
 impl<S: Send + Sync + 'static> Endpoints<S> {
+    /// An empty table.
     pub fn new() -> Self {
-        Self { routes: Vec::new() }
+        Self {
+            routes: Vec::new(),
+            html_csp: DEFAULT_HTML_CSP,
+        }
     }
 
-    /// An HTML page at `path`, behind Basic authentication, rendered by
+    /// An HTML page at `path`, behind the HTML authenticator, rendered by
     /// `view` with the page CSP.
-    pub fn html<T: 'static>(
+    pub fn html<T: Send + 'static>(
         self,
         path: &'static str,
         operation: &'static Operation<S, T>,
         view: View<T>,
     ) -> Self {
-        let handler = move |State(app): State<Shared<S>>, request: Request| async move {
-            html_route(&app, &request, operation, view)
+        let handler = move |State(app): State<Shared<S>>,
+                            method: Method,
+                            uri: Uri,
+                            headers: HeaderMap| async move {
+            html_route(&app, &method, &uri, &headers, operation, view).await
         };
         self.push(path, Kind::Html, operation, any(handler))
     }
 
-    /// JSON at `path`, which must be under `/api/`, behind Bearer
-    /// authentication.
-    pub fn api<T: Serialize + 'static>(
+    /// JSON at `path`, which must be under `/api/`, behind the API
+    /// authenticator.
+    pub fn api<T: Serialize + Send + 'static>(
         self,
         path: &'static str,
         operation: &'static Operation<S, T>,
     ) -> Self {
-        let handler = move |State(app): State<Shared<S>>, request: Request| async move {
-            api_route(&app, &request, operation)
+        let handler = move |State(app): State<Shared<S>>,
+                            method: Method,
+                            uri: Uri,
+                            headers: HeaderMap| async move {
+            api_route(&app, &method, &uri, &headers, operation).await
         };
         self.push(path, Kind::Api, operation, any(handler))
+    }
+
+    /// A public static file at `path`, such as the application's own
+    /// stylesheet: `GET` only, no credentials, served from memory with
+    /// `content_type`. It must hold no private data.
+    pub fn asset(
+        mut self,
+        path: &'static str,
+        content_type: &'static str,
+        body: &'static [u8],
+    ) -> Self {
+        let handler = move |method: Method| async move {
+            if method != Method::GET {
+                return Surface::Html.error(HttpError::MethodNotAllowed);
+            }
+            match HeaderValue::from_str(content_type) {
+                Ok(content_type) => ([(header::CONTENT_TYPE, content_type)], body).into_response(),
+                Err(_) => Surface::Html.error(HttpError::Internal),
+            }
+        };
+        self.routes.push(Route {
+            declared: Declared {
+                path,
+                kind: Kind::Asset,
+                operation: None,
+                params: &[],
+            },
+            invalid: None,
+            content_type: Some(content_type),
+            handler: any(handler),
+        });
+        self
+    }
+
+    /// Replaces the `Content-Security-Policy` of every HTML page of this
+    /// table, for example to allow images. The default,
+    /// [`DEFAULT_HTML_CSP`], allows only same-origin stylesheets and form
+    /// targets; anything you add here is yours to justify.
+    pub fn html_csp(mut self, policy: &'static str) -> Self {
+        self.html_csp = policy;
+        self
     }
 
     /// The override hatch: the application's own handler at `path`. It gets
@@ -198,6 +331,7 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
                 params: &[],
             },
             invalid: None,
+            content_type: None,
             handler,
         });
         self
@@ -218,9 +352,15 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
                 params: operation.params,
             },
             invalid: operation.check().err(),
+            content_type: None,
             handler,
         });
         self
+    }
+
+    /// The `Content-Security-Policy` that this table's HTML pages carry.
+    pub fn csp(&self) -> &'static str {
+        self.html_csp
     }
 
     /// The table's rows, in order.
@@ -232,8 +372,10 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
     /// the stylesheet, the 404 fallback, the limits and the headers, so
     /// every route has the same layers. An invalid table is an error, never
     /// a panic.
-    pub fn into_router(self, state: AppState<S>) -> Result<Router, RouteError> {
-        self.check()?;
+    pub fn into_router(self, mut state: AppState<S>) -> Result<Router, RouteError> {
+        self.check(&state)?;
+        state.html_csp =
+            HeaderValue::from_str(self.html_csp).map_err(|_| RouteError::InvalidCsp)?;
         let mut router = Router::new();
         for route in self.routes {
             router = router.route(route.declared.path, route.handler);
@@ -246,7 +388,11 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
             .layer(middleware::from_fn(response_headers)))
     }
 
-    fn check(&self) -> Result<(), RouteError> {
+    fn check(&self, state: &AppState<S>) -> Result<(), RouteError> {
+        let visible = |text: &str| text.bytes().all(|b| b == b' ' || b.is_ascii_graphic());
+        if self.html_csp.trim().is_empty() || !visible(self.html_csp) {
+            return Err(RouteError::InvalidCsp);
+        }
         for (i, route) in self.routes.iter().enumerate() {
             let Declared { path, kind, .. } = route.declared;
             if !is_exact_path(path) {
@@ -257,7 +403,7 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
             }
             let wrong_prefix = match kind {
                 Kind::Api => !path.starts_with("/api/"),
-                Kind::Html => Surface::for_path(path) == Surface::Api,
+                Kind::Html | Kind::Asset => Surface::for_path(path) == Surface::Api,
                 Kind::Custom => false,
             };
             if wrong_prefix {
@@ -269,6 +415,19 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
             if let Some(invalid) = route.invalid {
                 return Err(RouteError::Operation(invalid));
             }
+            let unguarded = match kind {
+                Kind::Html => state.html.is_none(),
+                Kind::Api => state.api.is_none(),
+                Kind::Custom | Kind::Asset => false,
+            };
+            if unguarded {
+                return Err(RouteError::NoAuthenticator(path));
+            }
+            if let Some(content_type) = route.content_type
+                && (content_type.trim().is_empty() || !visible(content_type))
+            {
+                return Err(RouteError::InvalidAsset(path));
+            }
         }
         Ok(())
     }
@@ -277,6 +436,7 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
 /// A route table that Senu refuses. `senu serve` prints it and exits with
 /// status 2 before binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RouteError {
     /// Not an exact path: it must start with `/`, hold only visible ASCII,
     /// and contain no `{`, `}`, `*`, `?`, `#`, `%` or `\`, no dot segment and
@@ -284,10 +444,20 @@ pub enum RouteError {
     InvalidPath(&'static str),
     /// `/_senu` and everything under `/_senu/` belong to Senu.
     Reserved(&'static str),
-    /// An API route outside `/api/`, or an HTML route under it.
+    /// An API route outside `/api/`, or an HTML route or asset under it.
     WrongPrefix(&'static str),
+    /// The path is listed twice.
     Duplicate(&'static str),
+    /// The route's operation has invalid metadata.
     Operation(InvalidDeclaration),
+    /// An HTML or API route whose surface has no authenticator in the
+    /// [`AppState`]. Senu refuses the table rather than serve it open.
+    NoAuthenticator(&'static str),
+    /// An asset whose content type cannot be a header value.
+    InvalidAsset(&'static str),
+    /// The CSP of [`Endpoints::html_csp`] is empty or cannot be a header
+    /// value.
+    InvalidCsp,
 }
 
 impl std::fmt::Display for RouteError {
@@ -301,6 +471,16 @@ impl std::fmt::Display for RouteError {
             ),
             Self::Duplicate(path) => write!(f, "senu: route {path:?} is listed twice"),
             Self::Operation(invalid) => write!(f, "senu: {invalid}"),
+            Self::NoAuthenticator(path) => write!(
+                f,
+                "senu: route {path:?} has no authenticator; set html_auth or api_auth on the AppState"
+            ),
+            Self::InvalidAsset(path) => {
+                write!(f, "senu: asset {path:?} has an invalid content type")
+            }
+            Self::InvalidCsp => {
+                f.write_str("senu: the HTML Content-Security-Policy is empty or not visible ASCII")
+            }
         }
     }
 }
@@ -321,6 +501,8 @@ fn is_exact_path(path: &str) -> bool {
 /// percent-decoding or normalization, and the query string and
 /// `Authorization` are never read. `/projects`, `/api/*` and `/mcp` do not
 /// exist here.
+#[cfg(feature = "demo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "demo")))]
 pub fn site_router(site: Site) -> Router {
     Router::new()
         .route(STYLESHEET_PATH, any(stylesheet))
@@ -332,32 +514,40 @@ pub fn site_router(site: Site) -> Router {
 
 /// A public, fixed error. None of these repeat the request or a credential.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum HttpError {
+    /// 401: the authenticator found no principal.
     Unauthorized,
+    /// 403: the principal lacks the permission.
     Forbidden,
+    /// 400: the arguments do not fit the declared parameters.
     InvalidRequest,
-    InvalidSearch,
-    InvalidId,
+    /// 404: no such route, or the operation found nothing.
     NotFound,
+    /// 405: any method but `GET`.
     MethodNotAllowed,
+    /// 414: the target is longer than [`MAX_TARGET_BYTES`].
     UriTooLong,
+    /// 413: the request has a body.
     PayloadTooLarge,
+    /// 500: the operation or the view failed. No detail is sent.
     Internal,
     /// An operation's own 400 error, from [`OpError::Invalid`].
     Invalid {
+        /// The JSON error code.
         code: &'static str,
+        /// The plain-text body.
         phrase: &'static str,
     },
 }
 
 impl HttpError {
+    /// The response status.
     pub fn status(self) -> StatusCode {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
-            Self::InvalidRequest | Self::InvalidSearch | Self::InvalidId | Self::Invalid { .. } => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::InvalidRequest | Self::Invalid { .. } => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::UriTooLong => StatusCode::URI_TOO_LONG,
@@ -372,8 +562,6 @@ impl HttpError {
             Self::Unauthorized => "unauthorized",
             Self::Forbidden => "forbidden",
             Self::InvalidRequest => "invalid_request",
-            Self::InvalidSearch => "invalid_search",
-            Self::InvalidId => "invalid_id",
             Self::NotFound => "not_found",
             Self::MethodNotAllowed => "method_not_allowed",
             Self::UriTooLong => "uri_too_long",
@@ -389,8 +577,6 @@ impl HttpError {
             Self::Unauthorized => "Unauthorized",
             Self::Forbidden => "Forbidden",
             Self::InvalidRequest => "Invalid request",
-            Self::InvalidSearch => "Invalid search",
-            Self::InvalidId => "Invalid id",
             Self::NotFound => "Not Found",
             Self::MethodNotAllowed => "Method Not Allowed",
             Self::UriTooLong => "URI Too Long",
@@ -406,9 +592,8 @@ impl From<OpError> for HttpError {
         match err {
             OpError::Forbidden => Self::Forbidden,
             OpError::InvalidRequest => Self::InvalidRequest,
-            OpError::InvalidSearch => Self::InvalidSearch,
-            OpError::InvalidId => Self::InvalidId,
             OpError::NotFound => Self::NotFound,
+            OpError::Internal => Self::Internal,
             OpError::Invalid { code, phrase } => Self::Invalid { code, phrase },
         }
     }
@@ -444,73 +629,97 @@ impl Surface {
             )
                 .into_response(),
         };
-        let headers = response.headers_mut();
-        match err {
-            HttpError::Unauthorized => {
-                let challenge = match self {
-                    Self::Api => BEARER_CHALLENGE,
-                    Self::Html => BASIC_CHALLENGE,
-                };
-                headers.insert(
-                    header::WWW_AUTHENTICATE,
-                    HeaderValue::from_static(challenge),
-                );
-            }
-            HttpError::MethodNotAllowed => {
-                headers.insert(header::ALLOW, HeaderValue::from_static("GET"));
-            }
-            _ => {}
+        if err == HttpError::MethodNotAllowed {
+            response
+                .headers_mut()
+                .insert(header::ALLOW, HeaderValue::from_static("GET"));
         }
+        response
+    }
+
+    /// 401 with the authenticator's challenge.
+    fn unauthorized(self, challenge: HeaderValue) -> Response {
+        let mut response = self.error(HttpError::Unauthorized);
+        response
+            .headers_mut()
+            .insert(header::WWW_AUTHENTICATE, challenge);
         response
     }
 }
 
-/// The shared JSON handler of every declared API route.
-fn api_route<S, T: Serialize>(
+/// The steps every declared route shares: the method, then the surface's
+/// authenticator, then the operation with the arguments of the query.
+async fn run_route<S, T>(
     app: &AppState<S>,
-    request: &Request,
+    surface: Surface,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    operation: &Operation<S, T>,
+) -> Result<(Args, T), Box<Response>> {
+    if method != Method::GET {
+        return Err(Box::new(surface.error(HttpError::MethodNotAllowed)));
+    }
+    // `Endpoints::check` refused the table if this is missing; fail closed
+    // all the same.
+    let Some(authenticator) = app.authenticator(surface) else {
+        return Err(Box::new(surface.error(HttpError::Internal)));
+    };
+    let Some(principal) = authenticator.authenticate(headers).await else {
+        return Err(Box::new(surface.unauthorized(authenticator.challenge())));
+    };
+    let args = query_arguments(uri.query());
+    match operation.call(&app.state, &principal, &args).await {
+        Ok(result) => Ok((args, result)),
+        Err(err) => Err(Box::new(surface.error(err.into()))),
+    }
+}
+
+/// The shared JSON handler of every declared API route.
+async fn api_route<S, T: Serialize>(
+    app: &AppState<S>,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
     operation: &Operation<S, T>,
 ) -> Response {
-    let surface = Surface::Api;
-    if request.method() != Method::GET {
-        return surface.error(HttpError::MethodNotAllowed);
-    }
-    if !bearer_matches(single_authorization(request.headers()), &app.api_token) {
-        return surface.error(HttpError::Unauthorized);
-    }
-    let args = query_arguments(request.uri().query());
-    match operation.call(&app.state, &app.api_principal, &args) {
-        Ok(result) => Json(result).into_response(),
-        Err(err) => surface.error(err.into()),
+    match run_route(app, Surface::Api, method, uri, headers, operation).await {
+        Ok((_args, result)) => Json(result).into_response(),
+        Err(response) => *response,
     }
 }
 
 /// The shared page handler of every declared HTML route.
-fn html_route<S, T>(
+async fn html_route<S, T>(
     app: &AppState<S>,
-    request: &Request,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
     operation: &Operation<S, T>,
     view: View<T>,
 ) -> Response {
-    let surface = Surface::Html;
-    if request.method() != Method::GET {
-        return surface.error(HttpError::MethodNotAllowed);
-    }
-    let authorization = single_authorization(request.headers());
-    if !basic_matches(authorization, &app.web_user, &app.web_password) {
-        return surface.error(HttpError::Unauthorized);
-    }
-    let args = query_arguments(request.uri().query());
-    let result = match operation.call(&app.state, &app.web_principal, &args) {
-        Ok(result) => result,
-        Err(err) => return surface.error(err.into()),
+    let (args, result) = match run_route(app, Surface::Html, method, uri, headers, operation).await
+    {
+        Ok(done) => done,
+        Err(response) => return *response,
     };
     match view(&args, &result) {
-        Ok(page) => ([(header::CONTENT_SECURITY_POLICY, HTML_CSP)], Html(page)).into_response(),
-        Err(_) => surface.error(HttpError::Internal),
+        Ok(page) => (
+            [
+                (header::CONTENT_SECURITY_POLICY, app.html_csp.clone()),
+                (
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/html; charset=utf-8"),
+                ),
+            ],
+            page,
+        )
+            .into_response(),
+        Err(_) => Surface::Html.error(HttpError::Internal),
     }
 }
 
+#[cfg(feature = "demo")]
 async fn site_page(State(site): State<Arc<Site>>, request: Request) -> Response {
     let Some(page) = site.page(request.uri().path()) else {
         return Surface::Html.error(HttpError::NotFound);
@@ -550,6 +759,7 @@ async fn limits(request: Request, next: Next) -> Response {
 }
 
 /// The same limits for `senu site`, whose errors are always plain text.
+#[cfg(feature = "demo")]
 async fn site_limits(request: Request, next: Next) -> Response {
     match over_limits(&request) {
         Some(err) => Surface::Html.error(err),
@@ -594,15 +804,6 @@ fn has_body(headers: &HeaderMap) -> bool {
 /// mean an empty body. Positive and malformed values count as a body.
 fn is_decimal_zero(value: &[u8]) -> bool {
     !value.is_empty() && value.iter().all(|&byte| byte == b'0')
-}
-
-/// The `Authorization` value when exactly one is present.
-fn single_authorization(headers: &HeaderMap) -> Option<&[u8]> {
-    let mut values = headers.get_all(header::AUTHORIZATION).iter();
-    match (values.next(), values.next()) {
-        (Some(value), None) => Some(value.as_bytes()),
-        _ => None,
-    }
 }
 
 /// Decodes a query string into operation arguments. Repeated keys become
@@ -670,7 +871,6 @@ mod tests {
             (HttpError::Unauthorized, 401, "unauthorized"),
             (HttpError::Forbidden, 403, "forbidden"),
             (HttpError::InvalidRequest, 400, "invalid_request"),
-            (HttpError::InvalidSearch, 400, "invalid_search"),
             (HttpError::NotFound, 404, "not_found"),
             (HttpError::MethodNotAllowed, 405, "method_not_allowed"),
             (HttpError::UriTooLong, 414, "uri_too_long"),
@@ -689,12 +889,31 @@ mod tests {
         for err in [
             OpError::Forbidden,
             OpError::InvalidRequest,
-            OpError::InvalidSearch,
+            OpError::NotFound,
+            OpError::Internal,
+            OpError::Invalid {
+                code: "invalid_sku",
+                phrase: "Invalid SKU",
+            },
         ] {
             assert_eq!(HttpError::from(err).code(), err.code());
         }
+        assert_eq!(HttpError::from(OpError::Internal).status().as_u16(), 500);
     }
 
+    #[cfg(feature = "demo")]
+    #[test]
+    fn the_demo_errors_keep_their_codes_as_constants() {
+        assert_eq!(HttpError::InvalidSearch.status().as_u16(), 400);
+        assert_eq!(HttpError::InvalidSearch.code(), "invalid_search");
+        assert_eq!(HttpError::InvalidSearch.phrase(), "Invalid search");
+        assert_eq!(
+            HttpError::from(OpError::InvalidSearch),
+            HttpError::InvalidSearch
+        );
+    }
+
+    #[cfg(feature = "demo")]
     #[test]
     fn get_project_errors_keep_their_codes_and_statuses() {
         assert_eq!(HttpError::InvalidId.status().as_u16(), 400);
@@ -756,15 +975,5 @@ mod tests {
         ] {
             assert!(has_body(&lengths(other)), "{other:?}");
         }
-    }
-
-    #[test]
-    fn only_a_single_authorization_header_is_used() {
-        let mut headers = HeaderMap::new();
-        assert_eq!(single_authorization(&headers), None);
-        headers.append(header::AUTHORIZATION, HeaderValue::from_static("Bearer a"));
-        assert_eq!(single_authorization(&headers), Some(&b"Bearer a"[..]));
-        headers.append(header::AUTHORIZATION, HeaderValue::from_static("Bearer a"));
-        assert_eq!(single_authorization(&headers), None);
     }
 }

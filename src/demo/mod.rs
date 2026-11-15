@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalogue::{Catalogue, TenantId};
 use crate::http::Endpoints;
+use crate::http::HttpError;
 use crate::mcp::{self, McpTool};
-use crate::operation::{Permission, Principal};
+use crate::operation::{OpError, Permission, Principal};
 
 /// May list the projects of the principal's tenant.
 pub const LIST_PROJECTS: Permission = Permission::new("list_projects");
@@ -27,8 +28,41 @@ const DEMO_PERMISSIONS: &[Permission] = &[LIST_PROJECTS, VIEW_PROJECT];
 /// The earlier names of the demo's permissions, kept for compatibility.
 #[allow(non_upper_case_globals)]
 impl Permission {
+    /// The earlier name of [`LIST_PROJECTS`].
     pub const ListProjects: Self = LIST_PROJECTS;
+    /// The earlier name of [`VIEW_PROJECT`].
     pub const ViewProject: Self = VIEW_PROJECT;
+}
+
+/// The demo's own 400 errors under the names they had as variants in 0.1.
+/// The codes and phrases on the wire are unchanged.
+#[allow(non_upper_case_globals)]
+impl OpError {
+    /// `list_projects`: the search is too long or holds control characters.
+    pub const InvalidSearch: Self = Self::Invalid {
+        code: "invalid_search",
+        phrase: "Invalid search",
+    };
+    /// `get_project`: the id is not 1 to 32 characters of `a-z`, `0-9`, `-`.
+    pub const InvalidId: Self = Self::Invalid {
+        code: "invalid_id",
+        phrase: "Invalid id",
+    };
+}
+
+/// The HTTP forms of the demo's own errors, as in 0.1.
+#[allow(non_upper_case_globals)]
+impl HttpError {
+    /// 400 `invalid_search`.
+    pub const InvalidSearch: Self = Self::Invalid {
+        code: "invalid_search",
+        phrase: "Invalid search",
+    };
+    /// 400 `invalid_id`.
+    pub const InvalidId: Self = Self::Invalid {
+        code: "invalid_id",
+        phrase: "Invalid id",
+    };
 }
 
 impl Principal {
@@ -51,7 +85,9 @@ impl Principal {
 /// One project as callers see it. It carries no tenant.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectSummary {
+    /// The project's id, such as `acme-001`.
     pub id: String,
+    /// The project's name, as stored.
     pub name: String,
 }
 
@@ -95,7 +131,7 @@ mod tests {
             (Principal::demo_mcp(), "demo-mcp"),
         ] {
             assert_eq!(principal.name(), name);
-            assert_eq!(principal.tenant(), TenantId::ACME);
+            assert_eq!(principal.tenant(), &TenantId::ACME);
             assert!(principal.has(Permission::ListProjects));
         }
         assert!(!NOBODY.has(Permission::ListProjects));

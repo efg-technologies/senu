@@ -273,7 +273,7 @@ fn credential(
         && text.bytes().all(is_vchar)
         && !(forbid_colon && text.contains(':'));
     if valid {
-        Ok(Some(Secret::new(text)))
+        Secret::new(text).map(Some).map_err(|_| malformed())
     } else {
         Err(malformed())
     }
