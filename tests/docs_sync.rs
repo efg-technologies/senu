@@ -182,6 +182,22 @@ fn both_languages_run_the_same_checked_blocks() {
     }
 }
 
+/// Both READMEs show `examples/hello.rs` from its first numbered comment to
+/// its end, so the first code a reader copies is code that compiles.
+#[test]
+fn readmes_show_the_hello_example_exactly() {
+    let example = read("examples/hello.rs");
+    let start = example.find("// 1. Your state.").expect("the first step");
+    let block = format!("```rust\n{}```\n", &example[start..]);
+    for readme in ["README.md", "README.ja.md"] {
+        assert_eq!(
+            read(readme).matches(&block).count(),
+            1,
+            "{readme} must show examples/hello.rs after its imports, byte for byte"
+        );
+    }
+}
+
 /// The `rust excerpt=<path>` blocks of one article: the path and the code.
 fn excerpts(locale: &str, chapter: &str) -> Vec<(String, String)> {
     let mut found = Vec::new();
