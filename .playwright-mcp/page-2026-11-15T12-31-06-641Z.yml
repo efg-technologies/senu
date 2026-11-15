@@ -1,0 +1,250 @@
+- generic [active] [ref=f2e1]:
+  - link "本文へ移動" [ref=f2e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f2e3]:
+    - generic [ref=f2e4]:
+      - link "Senu" [ref=f2e5] [cursor=pointer]:
+        - /url: index.html
+      - link "English" [ref=f2e6] [cursor=pointer]:
+        - /url: ../operations.html
+  - generic [ref=f2e7]:
+    - navigation "目次" [ref=f2e8]:
+      - group [ref=f2e9]:
+        - paragraph [ref=f2e10]: ライブラリガイド
+        - list [ref=f2e11]:
+          - listitem [ref=f2e12]:
+            - link "Senu とは何か、いつ使うか" [ref=f2e13] [cursor=pointer]:
+              - /url: overview.html
+          - listitem [ref=f2e14]:
+            - link "操作を宣言する" [ref=f2e15] [cursor=pointer]:
+              - /url: operations.html
+          - listitem [ref=f2e16]:
+            - link "呼び出し元を認証する" [ref=f2e17] [cursor=pointer]:
+              - /url: authentication.html
+          - listitem [ref=f2e18]:
+            - link "操作を MCP ツールとして公開する" [ref=f2e19] [cursor=pointer]:
+              - /url: mcp-tools.html
+          - listitem [ref=f2e20]:
+            - link "デプロイと運用" [ref=f2e21] [cursor=pointer]:
+              - /url: deployment.html
+          - listitem [ref=f2e22]:
+            - link "契約でテストする" [ref=f2e23] [cursor=pointer]:
+              - /url: testing.html
+          - listitem [ref=f2e24]:
+            - link "質問と比較" [ref=f2e25] [cursor=pointer]:
+              - /url: faq.html
+        - paragraph [ref=f2e26]: "講座: Senu で学ぶ Rust"
+        - list [ref=f2e27]:
+          - listitem [ref=f2e28]:
+            - 'link "はじめに: これから作るもの" [ref=f2e29] [cursor=pointer]':
+              - /url: start.html
+          - listitem [ref=f2e30]:
+            - link "Rust をインストールしてコードを手に入れる" [ref=f2e31] [cursor=pointer]:
+              - /url: install.html
+          - listitem [ref=f2e32]:
+            - link "ブラウザーで最初のページを見る" [ref=f2e33] [cursor=pointer]:
+              - /url: first-page.html
+          - listitem [ref=f2e34]:
+            - link "最初のノートを書く" [ref=f2e35] [cursor=pointer]:
+              - /url: first-note.html
+          - listitem [ref=f2e36]:
+            - link "Senu が「だめ」と言うとき" [ref=f2e37] [cursor=pointer]:
+              - /url: when-senu-says-no.html
+          - listitem [ref=f2e38]:
+            - link "はじめての Rust の関数" [ref=f2e39] [cursor=pointer]:
+              - /url: first-function.html
+          - listitem [ref=f2e40]:
+            - link "作ったものと、この先の学び方" [ref=f2e41] [cursor=pointer]:
+              - /url: next-steps.html
+        - paragraph [ref=f2e42]: ノート
+        - list [ref=f2e43]:
+          - listitem [ref=f2e44]:
+            - link "サンプルのノート" [ref=f2e45] [cursor=pointer]:
+              - /url: sample-note.html
+        - paragraph [ref=f2e46]: 付録
+        - list [ref=f2e47]:
+          - listitem [ref=f2e48]:
+            - 'link "付録: プロジェクト一覧 (任意)" [ref=f2e49] [cursor=pointer]':
+              - /url: appendix-catalogue.html
+          - listitem [ref=f2e50]:
+            - 'link "付録: MCP で Senu を使う (任意)" [ref=f2e51] [cursor=pointer]':
+              - /url: appendix-mcp.html
+    - main [ref=f2e52]:
+      - heading "操作を宣言する" [level=1] [ref=f2e53]
+      - paragraph [ref=f2e54]: 約 5 分で読めます
+      - paragraph [ref=f2e55]: 操作は、名前・説明・権限・文字列パラメータを持つ読み取り専用の関数です。定数として一度だけ宣言し、到達させたい場所の一覧に載せます。
+      - heading "操作は何でできていますか" [level=2] [ref=f2e56]
+      - paragraph [ref=f2e57]:
+        - text: このページの例は、小さな在庫サービス
+        - code [ref=f2e58]: "`examples/inventory.rs`"
+        - text: から取っています。最初の操作は品目を 1 つ調べます。
+      - code [ref=f2e60]: "pub const GET_STOCK: Operation<Inventory, Level> = Operation { name: \"get_stock\", description: \"Units in stock for one SKU of the caller's warehouse.\", permission: VIEW_STOCK, params: &[Param::required( \"sku\", \"The SKU: 1 to 16 characters of A-Z, 0-9 and '-'.\", )], run: Run::Async(|inventory, caller, args| Box::pin(get_stock(inventory, caller, args))), };"
+      - list [ref=f2e61]:
+        - listitem [ref=f2e62]:
+          - code [ref=f2e63]: "`name`"
+          - text: は 64 バイト以内の snake_case です。MCP ツールの名前になります。
+        - listitem [ref=f2e64]:
+          - code [ref=f2e65]: "`description`"
+          - text: は人とアシスタントに向けた 1 文です。ツールの説明になるので、何を誰に返すかを書きます。
+        - listitem [ref=f2e66]:
+          - code [ref=f2e67]: "`permission`"
+          - text: はアプリケーションの定数で、
+          - code [ref=f2e68]: "`Permission::new(\"view_stock\")`"
+          - text: のように宣言します。ほかの何よりも先に検査されます。
+        - listitem [ref=f2e69]:
+          - code [ref=f2e70]: "`params`"
+          - text: は、呼び出し元が送ってよいキーのすべてです。どれも説明つきの文字列です。
+          - code [ref=f2e71]: "`Param::required`"
+          - text: は必須で、
+          - code [ref=f2e72]: "`Param::optional`"
+          - text: は省略できます。
+        - listitem [ref=f2e73]:
+          - code [ref=f2e74]: "`run`"
+          - text: が関数です。メモリ上の純粋な処理は
+          - code [ref=f2e75]: "`Run::Sync`"
+          - text: 、待つ処理は
+          - code [ref=f2e76]: "`Run::Async`"
+          - text: にします。
+      - paragraph [ref=f2e77]: Senu はこのメタデータを、ルーターやツールの一覧を組み立てるときに検査します。不正な名前、空の説明、二重に宣言したパラメータは起動時のエラーになり、本番で初めて気づくことがありません。
+      - heading "関数はどう書きますか" [level=2] [ref=f2e78]
+      - paragraph [ref=f2e79]:
+        - text: 関数は状態・呼び出し元・引数を受け取り、
+        - code [ref=f2e80]: "`Serialize`"
+        - text: を実装した結果か
+        - code [ref=f2e81]: "`OpError`"
+        - text: を返します。
+      - code [ref=f2e83]: "#[derive(Deserialize)] #[serde(deny_unknown_fields)] struct StockArgs { sku: String, } async fn get_stock( inventory: &Inventory, caller: &Principal, args: &Args, ) -> Result<Level, OpError> { let StockArgs { sku } = decode(args)?; let well_formed = (1..=16).contains(&sku.len()) && sku .bytes() .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'-'); if !well_formed { return Err(INVALID_SKU); } let levels = inventory.levels(caller).await?; levels .into_iter() .find(|level| level.sku == sku) .ok_or(OpError::NotFound) }"
+      - paragraph [ref=f2e84]: 安全に保つ習慣が 3 つあります。
+      - list [ref=f2e85]:
+        - listitem [ref=f2e86]:
+          - code [ref=f2e87]: "`decode`"
+          - text: で、
+          - code [ref=f2e88]: "`#[serde(deny_unknown_fields)]`"
+          - text: を付けた構造体に読み込みます。欠けた項目や型の違う項目は
+          - code [ref=f2e89]: "`invalid_request`"
+          - text: になります。
+        - listitem [ref=f2e90]:
+          - text: テナントは引数からではなく、呼び出し元から読みます。
+          - code [ref=f2e91]: "`caller.tenant()`"
+          - text: は、サーバーがリクエストを認証したときに決めた値です。
+        - listitem [ref=f2e92]:
+          - text: 存在しないものにも、別のテナントのものにも、同じ
+          - code [ref=f2e93]: "`OpError::NotFound`"
+          - text: を返します。他のテナントのデータを探る手がかりを与えません。
+      - heading "操作はどんなエラーを返せますか" [level=2] [ref=f2e94]
+      - table [ref=f2e95]:
+        - rowgroup [ref=f2e96]:
+          - row [ref=f2e97]:
+            - columnheader "エラー" [ref=f2e98]
+            - columnheader "HTTP" [ref=f2e99]
+            - columnheader "JSON と MCP のコード" [ref=f2e100]
+            - columnheader "意味" [ref=f2e101]
+        - rowgroup [ref=f2e102]:
+          - row [ref=f2e103]:
+            - cell [ref=f2e104]:
+              - code [ref=f2e105]: "`OpError::Forbidden`"
+            - cell "403" [ref=f2e106]
+            - cell [ref=f2e107]:
+              - code [ref=f2e108]: "`forbidden`"
+            - cell "呼び出し元に権限がありません。関数が走る前に Senu が返します。" [ref=f2e109]
+          - row [ref=f2e110]:
+            - cell [ref=f2e111]:
+              - code [ref=f2e112]: "`OpError::InvalidRequest`"
+            - cell "400" [ref=f2e113]
+            - cell [ref=f2e114]:
+              - code [ref=f2e115]: "`invalid_request`"
+            - cell "引数が宣言したパラメータに合いません。" [ref=f2e116]
+          - row [ref=f2e117]:
+            - cell [ref=f2e118]:
+              - code [ref=f2e119]: "`OpError::Invalid { code, phrase }`"
+            - cell "400" [ref=f2e120]
+            - cell [ref=f2e121]:
+              - text: あなたの
+              - code [ref=f2e122]: "`code`"
+            - cell [ref=f2e123]:
+              - code [ref=f2e124]: "`invalid_sku`"
+              - text: のような、操作独自の検証エラーです。
+          - row [ref=f2e125]:
+            - cell [ref=f2e126]:
+              - code [ref=f2e127]: "`OpError::NotFound`"
+            - cell "404" [ref=f2e128]
+            - cell [ref=f2e129]:
+              - code [ref=f2e130]: "`not_found`"
+            - cell "この呼び出し元に見えるものの中に、該当がありません。" [ref=f2e131]
+          - row [ref=f2e132]:
+            - cell [ref=f2e133]:
+              - code [ref=f2e134]: "`OpError::Internal`"
+            - cell "500" [ref=f2e135]
+            - cell [ref=f2e136]:
+              - code [ref=f2e137]: "`internal`"
+            - cell "バックエンドが失敗しました。原因は自分でログに残します。呼び出し元には詳細を見せません。" [ref=f2e138]
+      - paragraph [ref=f2e139]:
+        - text: コードも文言も固定の文字列なので、エラーが入力や秘密を繰り返すことはありません。
+        - code [ref=f2e140]: "`/api/`"
+        - text: の下では本文が
+        - code [ref=f2e141]: "`{\"error\": \"<code>\"}`"
+        - text: になります。HTML のルートは文言をプレーンテキストで返します。MCP ツールは
+        - code [ref=f2e142]: "`isError`"
+        - text: つきの結果に同じ JSON を入れて返します。
+      - heading "非同期の操作はどう動きますか" [level=2] [ref=f2e143]
+      - paragraph [ref=f2e144]:
+        - code [ref=f2e145]: "`Run::Async`"
+        - text: に、Box に入れた future を返す関数を渡します。つなぎのコードは、上の宣言にあるクロージャ
+        - code [ref=f2e146]: "`|inventory, caller, args| Box::pin(get_stock(inventory, caller, args))`"
+        - text: だけです。関数の中ではデータベースのクライアントを await するか、ブロックする処理をエグゼキューターの外へ移します。
+      - code [ref=f2e148]: "async fn levels(&self, caller: &Principal) -> Result<Vec<Level>, OpError> { let (items, tenant) = (Arc::clone(&self.0), caller.tenant().clone()); let read = move || { items .iter() .filter(|item| item.tenant == tenant) .map(|item| item.level.clone()) .collect() }; tokio::task::spawn_blocking(read) .await .map_err(|_| OpError::Internal) }"
+      - paragraph [ref=f2e149]:
+        - code [ref=f2e150]: "`Run::Sync`"
+        - text: の関数は非同期エグゼキューターの上でそのまま走ります。メモリ上のデータを扱う処理に限ってください。ブロックしうるなら非同期にします。
+      - heading "操作はどう公開しますか" [level=2] [ref=f2e151]
+      - paragraph [ref=f2e152]:
+        - code [ref=f2e153]: "`Endpoints`"
+        - text: の表とツールの一覧に載せます。載せたものだけが到達可能になります。
+      - code [ref=f2e155]: "pub fn endpoints() -> Endpoints<Inventory> { Endpoints::new() .api(\"/api/stock\", &GET_STOCK) .api(\"/api/low-stock\", &LIST_LOW_STOCK) .html(\"/low-stock\", &LIST_LOW_STOCK, low_stock_page) .asset( \"/assets/inventory.css\", \"text/css; charset=utf-8\", STYLESHEET, ) } pub fn tools() -> Vec<McpTool<Inventory>> { vec![mcp::tool(&GET_STOCK), mcp::tool(&LIST_LOW_STOCK)] }"
+      - list [ref=f2e156]:
+        - listitem [ref=f2e157]:
+          - code [ref=f2e158]: "`.api(path, &OPERATION)`"
+          - text: は JSON を返します。パスは
+          - code [ref=f2e159]: "`/api/`"
+          - text: の下でなければなりません。
+        - listitem [ref=f2e160]:
+          - code [ref=f2e161]: "`.html(path, &OPERATION, view)`"
+          - text: はページを返します。
+          - code [ref=f2e162]: "`view`"
+          - text: は、受理された引数と結果から HTML を作る関数です。Askama を使えば、すべての値が既定でエスケープされます。
+        - listitem [ref=f2e163]:
+          - code [ref=f2e164]: "`.asset(path, content_type, bytes)`"
+          - text: は、スタイルシートのような公開の静的ファイルを返します。
+        - listitem [ref=f2e165]:
+          - code [ref=f2e166]: "`.custom(path, handler)`"
+          - text: は、それ以外のための抜け道です。サイズの上限とレスポンスヘッダーは付きますが、認証は付きません。認証はそのハンドラーの責任です。
+        - listitem [ref=f2e167]:
+          - code [ref=f2e168]: "`.html_csp(policy)`"
+          - text: は、ページの Content-Security-Policy を置き換えます。既定では同一オリジンのスタイルシートとフォームだけを許し、スクリプト・画像・フレームは許しません。
+      - paragraph [ref=f2e169]:
+        - code [ref=f2e170]: "`into_router(state)`"
+        - text: は表の全体を検査し、
+        - code [ref=f2e171]: "`axum::Router`"
+        - text: か、パスを名指しするエラーを返します。パスは完全一致で、重複せず、
+        - code [ref=f2e172]: "`/_senu/`"
+        - text: の外になければなりません。
+        - code [ref=f2e173]: "`/_senu/`"
+        - text: は Senu の組み込みスタイルシートのために予約されています。
+      - heading "検査はどの順序で走りますか" [level=2] [ref=f2e174]
+      - paragraph [ref=f2e175]:
+        - text: いつも同じです。上限、メソッド、認証、権限、パラメータの枠、そしてあなたの関数の順です。権限が検証より先にあることには意味があります。権限のない呼び出し元は、どの入力が有効だったかを何も知ることができません。
+        - link "契約テスト" [ref=f2e176] [cursor=pointer]:
+          - /url: testing.html
+        - text: は、この順序をあなたのルートで確かめます。
+      - paragraph [ref=f2e177]:
+        - text: "次のページ:"
+        - link "呼び出し元を認証する" [ref=f2e178] [cursor=pointer]:
+          - /url: authentication.html
+        - text: 。
+      - navigation "前後のページ" [ref=f2e179]:
+        - 'link "前へ: Senu とは何か、いつ使うか" [ref=f2e180] [cursor=pointer]':
+          - /url: overview.html
+        - 'link "次へ: 呼び出し元を認証する" [ref=f2e181] [cursor=pointer]':
+          - /url: authentication.html
+  - contentinfo [ref=f2e182]:
+    - paragraph [ref=f2e183]: Senu は Apache-2.0 ライセンスのオープンソースで、監査済みのセキュリティソフトウェアではありません。ここの各ページは、Senu リポジトリの content/ja/ にある Markdown ファイルです。

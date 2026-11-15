@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 
 use super::{ProjectSummary, VIEW_PROJECT};
 use crate::catalogue::Catalogue;
-use crate::operation::{Args, OpError, Operation, Param, Principal, decode};
+use crate::operation::{Args, OpError, Operation, Param, Principal, Run, decode};
 use crate::view;
 
 /// Longest accepted project id, in bytes; an id is ASCII `a-z`, `0-9` and `-`.
@@ -21,7 +21,7 @@ pub const OPERATION: Operation<Catalogue, ProjectSummary> = Operation {
         description: "The project id: 1 to 32 characters of a-z, 0-9 and '-'.",
         required: true,
     }],
-    run: get_project,
+    run: Run::Sync(get_project),
 };
 
 const _: () = assert!(MAX_ID_BYTES == 32, "update the description of id");

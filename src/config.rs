@@ -9,12 +9,15 @@ use std::fmt;
 use std::net::SocketAddr;
 
 use crate::auth::{Secret, is_vchar};
+use crate::site::BaseUrl;
 
 pub const BIND: &str = "SENU_BIND";
 pub const WEB_USER: &str = "SENU_WEB_USER";
 pub const WEB_PASSWORD: &str = "SENU_WEB_PASSWORD";
 pub const API_TOKEN: &str = "SENU_API_TOKEN";
 pub const MCP_TOKEN: &str = "SENU_MCP_TOKEN";
+/// The public address of the site's snapshot, for `senu site` only.
+pub const SITE_URL: &str = "SENU_SITE_URL";
 
 /// The address used when `SENU_BIND` is not set.
 pub const DEFAULT_BIND: &str = "127.0.0.1:3000";
@@ -32,6 +35,9 @@ pub struct ServeConfig {
 #[derive(Debug)]
 pub struct SiteConfig {
     pub bind: SocketAddr,
+    /// The public address, when the pages should name their canonical
+    /// addresses (spec 0006, §6).
+    pub base_url: Option<BaseUrl>,
 }
 
 /// Configuration for `senu mcp --enable-mcp`.
@@ -51,6 +57,8 @@ pub enum Problem {
     SameValueAs(&'static str),
     /// A credential set for `senu site`, which serves public pages.
     NotForSite,
+    /// `SENU_SITE_URL` set for a mode other than `senu site`.
+    OnlyForSite,
 }
 
 /// A configuration failure. It names the variable and never holds its value.
@@ -88,6 +96,10 @@ impl fmt::Display for ConfigError {
                 f,
                 "senu: {name} is set, but `senu site` serves public pages and uses no credentials; unset it"
             ),
+            Problem::OnlyForSite => write!(
+                f,
+                "senu: {name} is set, but only `senu site` uses it; unset it"
+            ),
         }
     }
 }
@@ -98,12 +110,15 @@ fn rule(variable: &str) -> &'static str {
     match variable {
         BIND => "expected a loopback IP address and port, such as 127.0.0.1:3000",
         WEB_USER => "expected 1 to 64 visible ASCII characters (0x21-0x7E) without ':'",
+        SITE_URL => {
+            "expected an https:// address that ends in '/', such as https://example.org/senu/"
+        }
         _ => "expected 1 to 256 visible ASCII characters (0x21-0x7E)",
     }
 }
 
 /// Every variable Senu reads, in the order they are validated.
-const KNOWN: [&str; 5] = [BIND, WEB_USER, WEB_PASSWORD, API_TOKEN, MCP_TOKEN];
+const KNOWN: [&str; 6] = [BIND, WEB_USER, WEB_PASSWORD, API_TOKEN, MCP_TOKEN, SITE_URL];
 const MAX_USER_BYTES: usize = 64;
 const MAX_SECRET_BYTES: usize = 256;
 
@@ -147,7 +162,7 @@ pub fn site_config<I>(vars: I) -> Result<SiteConfig, ConfigError>
 where
     I: IntoIterator<Item = (OsString, OsString)>,
 {
-    let [bind, user, password, api, mcp] = collect(vars)?;
+    let [bind, user, password, api, mcp, site_url] = collect(vars)?;
     let credentials = [
         (WEB_USER, user),
         (WEB_PASSWORD, password),
@@ -159,8 +174,18 @@ where
             return Err(ConfigError::new(name, Problem::NotForSite));
         }
     }
+    let base_url = match site_url {
+        None => None,
+        Some(raw) if raw.is_empty() => return Err(ConfigError::new(SITE_URL, Problem::Empty)),
+        Some(raw) => Some(
+            raw.to_str()
+                .and_then(BaseUrl::new)
+                .ok_or_else(|| ConfigError::new(SITE_URL, Problem::Malformed))?,
+        ),
+    };
     Ok(SiteConfig {
         bind: bind_address(bind)?,
+        base_url,
     })
 }
 
@@ -175,7 +200,10 @@ where
     I: IntoIterator<Item = (OsString, OsString)>,
 {
     let raw = collect(vars)?;
-    let [bind, user, password, api, mcp] = raw;
+    let [bind, user, password, api, mcp, site_url] = raw;
+    if site_url.is_some() {
+        return Err(ConfigError::new(SITE_URL, Problem::OnlyForSite));
+    }
     let validated = Validated {
         bind: bind_address(bind)?,
         web_user: credential(WEB_USER, user, MAX_USER_BYTES, true)?,
@@ -203,11 +231,11 @@ where
 
 /// Picks out the known variables and rejects unknown or repeated `SENU_*`
 /// names. Other variables are ignored.
-fn collect<I>(vars: I) -> Result<[Option<OsString>; 5], ConfigError>
+fn collect<I>(vars: I) -> Result<[Option<OsString>; 6], ConfigError>
 where
     I: IntoIterator<Item = (OsString, OsString)>,
 {
-    let mut values: [Option<OsString>; 5] = Default::default();
+    let mut values: [Option<OsString>; 6] = Default::default();
     let mut unknown = std::collections::BTreeSet::new();
     let mut repeated = None;
     for (name, value) in vars {
@@ -273,7 +301,7 @@ fn credential(
         && text.bytes().all(is_vchar)
         && !(forbid_colon && text.contains(':'));
     if valid {
-        Ok(Some(Secret::new(text)))
+        Secret::new(text).map(Some).map_err(|_| malformed())
     } else {
         Err(malformed())
     }
@@ -593,5 +621,54 @@ mod tests {
         }
         let mcp = mcp_config(env(&[(MCP_TOKEN, MCP)])).unwrap();
         assert!(!format!("{mcp:?}").contains(MCP));
+    }
+
+    // Spec 0006, §6: the public address of the site.
+
+    #[test]
+    fn the_site_url_is_an_https_address_that_ends_in_a_slash() {
+        let config = site_config(env(&[(SITE_URL, "https://example.org/senu/")])).unwrap();
+        let base = config.base_url.expect("a base URL");
+        assert_eq!(base.as_str(), "https://example.org/senu/");
+        assert!(site_config(env(&[])).unwrap().base_url.is_none());
+        let empty = site_config(env(&[(SITE_URL, "")])).unwrap_err();
+        assert_problem(&empty, SITE_URL, Problem::Empty);
+        for bad in [
+            "http://example.net/",
+            "https://example.net",
+            "https://example.net/senu",
+            "example.net/",
+            "https:///x/",
+            "https://example.net//x/",
+            "https://example.net/?q=1/",
+            "https://example.net/#top/",
+            "https://example.net/\"x/",
+            "https://example.net/<x>/",
+            "https://example.net/a b/",
+            "https://example.net/é/",
+            "//example.net/",
+            "javascript:alert(1)/",
+        ] {
+            let err = site_config(env(&[(SITE_URL, bad)])).unwrap_err();
+            assert_problem(&err, SITE_URL, Problem::Malformed);
+            let message = err.to_string();
+            assert!(message.contains("https://example.org/senu/"), "{message}");
+            assert!(!message.contains(bad), "{message}");
+        }
+        let long = format!("https://example.org/{}/", "a".repeat(200));
+        let err = site_config(env(&[(SITE_URL, &long)])).unwrap_err();
+        assert_problem(&err, SITE_URL, Problem::Malformed);
+    }
+
+    #[test]
+    fn the_site_url_is_refused_by_the_other_modes() {
+        let mut vars = serve_env();
+        vars.push((SITE_URL, "https://example.org/"));
+        let err = serve_config(env(&vars)).unwrap_err();
+        assert_problem(&err, SITE_URL, Problem::OnlyForSite);
+        let err =
+            mcp_config(env(&[(MCP_TOKEN, MCP), (SITE_URL, "https://example.org/")])).unwrap_err();
+        assert_problem(&err, SITE_URL, Problem::OnlyForSite);
+        assert!(err.to_string().contains("only `senu site` uses it"));
     }
 }

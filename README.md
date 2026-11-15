@@ -2,46 +2,207 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-**Each Rust operation, served as a web page, a JSON API and an MCP tool.**
+**Declare a Rust function once. Serve it as a web page, a JSON API and an MCP tool.**
 
-Senu is an experimental Rust seed. Each pure function, such as
-`list_projects` or `get_project`, is declared once and shared by three
-transports: an HTML page rendered with
-[Askama](https://askama.rs/), a JSON API on [Axum](https://docs.rs/axum), and
-an opt-in [MCP](https://modelcontextprotocol.io/) tool over stdio built with
-the official [`rmcp`](https://rust.sdk.modelcontextprotocol.io/) SDK. Each
-transport checks its own credential, picks a principal on the server side and
-calls the same function, so all three return the same projects in the same
-order. Tests check that. Senu also serves a small site of Markdown
-articles, which holds a beginner course.
+[![CI](https://github.com/efg-technologies/senu/actions/workflows/ci.yml/badge.svg)](https://github.com/efg-technologies/senu/actions/workflows/ci.yml)
+[Guide and course](https://efg-technologies.github.io/senu/) ·
+[API reference](https://docs.rs/senu) ·
+[Changelog](CHANGELOG.md) ·
+[Security](SECURITY.md)
+
+Senu is an open-source Rust library. You declare a read-only function once,
+with its permission and parameters, and Senu serves it as an HTML page
+rendered with [Askama](https://askama.rs/), a JSON API on
+[Axum](https://docs.rs/axum) and an [MCP](https://modelcontextprotocol.io/)
+tool for AI assistants built with the official
+[`rmcp`](https://rust.sdk.modelcontextprotocol.io/) SDK. All three run the
+same steps in the same order: size limits, the method, authentication, the
+permission, the parameter envelope, your function, and one fixed error
+mapping. The tests that prove it ship as a kit that you run over your own
+routes.
+
+```sh
+cargo add senu --no-default-features
+```
+
+## A complete application
+
+This is [`examples/hello.rs`](examples/hello.rs) after its imports: one
+operation behind a Bearer token, also listed as an MCP tool.
+
+```rust
+// 1. Your state. Here it is one string; in a real service it holds a
+//    database pool.
+struct Greeter {
+    greeting: &'static str,
+}
+
+// 2. A permission, and a principal that holds it.
+const GREET: Permission = Permission::new("greet");
+const GUEST: Principal = Principal::new("guest", TenantId::from_static("main"), &[GREET]);
+
+// 3. The function: state, caller and arguments in, a result or a safe
+//    error out. It knows nothing about HTTP or MCP.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GreetingArgs {
+    name: String,
+}
+
+#[derive(Serialize)]
+struct Greeting {
+    message: String,
+}
+
+fn greeting(greeter: &Greeter, _caller: &Principal, args: &Args) -> Result<Greeting, OpError> {
+    let GreetingArgs { name } = decode(args)?;
+    if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
+        return Err(OpError::Invalid {
+            code: "invalid_name",
+            phrase: "Invalid name",
+        });
+    }
+    Ok(Greeting {
+        message: format!("{}, {name}!", greeter.greeting),
+    })
+}
+
+// 4. The declaration. It exposes nothing by itself.
+const GREETING: Operation<Greeter, Greeting> = Operation {
+    name: "greeting",
+    description: "Greets one person by name.",
+    permission: GREET,
+    params: &[Param::required("name", "Who to greet: 1 to 40 characters.")],
+    run: Run::Sync(greeting),
+};
+
+// 5. Exposure: one JSON route and one MCP tool, both listed by hand.
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let token = Secret::new(std::env::var("HELLO_TOKEN")?)?;
+    let greeter = Greeter { greeting: "Hello" };
+
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        // MCP over stdio: every call runs as GUEST.
+        let server = McpServer::with_tools(greeter, GUEST, vec![mcp::tool(&GREETING)])?;
+        return Ok(server.with_info("hello", "1.0.0").serve_stdio().await?);
+    }
+
+    // HTTP: `router` is an ordinary `axum::Router`.
+    let state = AppState::builder(greeter)
+        .api_auth(Bearer::new(token, GUEST))
+        .build();
+    let router = Endpoints::new()
+        .api("/api/greeting", &GREETING)
+        .into_router(state)?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    axum::serve(listener, router).await?;
+    Ok(())
+}
+```
+
+```text
+$ HELLO_TOKEN=choose-a-long-random-value cargo run --example hello &
+$ curl -H 'Authorization: Bearer choose-a-long-random-value' 'http://127.0.0.1:3000/api/greeting?name=Ada'
+{"message":"Hello, Ada!"}
+```
+
+[`examples/inventory.rs`](examples/inventory.rs) goes further: asynchronous
+operations, an authenticator of its own that reads `X-Api-Key`, two
+tenants, an HTML page, a stylesheet and MCP.
+[`tests/example_inventory.rs`](tests/example_inventory.rs) runs Senu's
+contract over it.
+
+## What you get
+
+- **One declaration, three transports.** `Operation` holds the name, the
+  description, the permission, the string parameters and the function.
+  `Endpoints` lists the routes and `mcp::tool` the tools. Declaring exposes
+  nothing; only what you list is reachable.
+- **One order of checks.** Authentication comes before the permission, and
+  the permission before any validation, on HTML, JSON and MCP alike. A
+  caller without the permission learns nothing about valid input.
+- **Your authentication.** `auth::Authenticate` turns request headers into
+  a server-side `Principal`. Bearer and Basic are built in; sessions, API
+  keys in a database or a proxy header are an implementation of the trait.
+  A route whose authenticator is missing is refused at startup.
+- **Synchronous or asynchronous functions.** `Run::Sync` for work in
+  memory, `Run::Async` for anything that waits.
+- **Safe errors.** Every error is a fixed code and phrase, so none can
+  repeat the input or a secret. `OpError::Internal` carries no detail.
+- **The contract as a test kit.** `senu::contract::check` (feature
+  `contract`) sends real requests through your routes and tools and checks
+  seven rules, CT-1 to CT-7.
+- **A plain `axum::Router`.** Bind it where you like and add tower layers
+  for logging, timeouts and rate limits.
+
+The [guide](https://efg-technologies.github.io/senu/overview.html) explains
+each part: [operations](https://efg-technologies.github.io/senu/operations.html),
+[authentication](https://efg-technologies.github.io/senu/authentication.html),
+[MCP tools](https://efg-technologies.github.io/senu/mcp-tools.html),
+[deployment](https://efg-technologies.github.io/senu/deployment.html),
+[testing](https://efg-technologies.github.io/senu/testing.html) and
+[questions and comparisons](https://efg-technologies.github.io/senu/faq.html).
+AI assistants can read
+[llms.txt](https://efg-technologies.github.io/senu/llms.txt).
+
+## Status and limits
+
+Version 0.2 is the first release meant for use as a library. Its API is
+documented and its contract is tested, and it is honest about what it is
+not:
+
+- **Read-only.** Operations are served by `GET` and every MCP tool is
+  marked read-only. There are no write operations, forms or CSRF tokens.
+- **Strings and exact paths.** Parameters are strings, which an operation
+  parses itself, and there are no path parameters.
+- **MCP over stdio only.** A stdio server trusts the local process that
+  starts it. There is no MCP over HTTP.
+- **No sessions, login pages or OAuth.** They belong in your
+  `Authenticate` implementation and your own routes.
+- **No TLS, logging, timeouts or rate limits.** They belong in front of
+  the router or in tower layers.
+- **Not audited, pre-1.0.** Senu has had no independent security audit and
+  makes no performance claim. A 0.x minor version may change the API;
+  [CHANGELOG.md](CHANGELOG.md) lists every change.
+
+[Spec 0006](docs/specs/0006-library-release-and-public-site.md) defines
+this release.
+
+## Features
+
+| Feature | Default | What it adds |
+|---|---|---|
+| `demo` | yes | The catalogue demo, the `senu` binary and the article site with the course. A dependent turns it off with `default-features = false`. |
+| `contract` | no | `senu::contract`, the test kit. Enable it under `[dev-dependencies]`. |
+
+The rest of this README describes the demo, the course and development in
+this repository.
 
 ## Aims (MCS): minimal, consistent, spec-driven
 
 - **Minimal:** application developers should own as little code,
-  configuration and duplication as possible. Today a new article is one
-  Markdown file, a change of look is classes in a template plus
-  `npm run css`, and a new operation is a declaration plus one line per
-  route and tool (see [Adding an operation](#adding-an-operation)).
+  configuration and duplication as possible. A new operation is a
+  declaration plus one line per route and tool, a new article is one
+  Markdown file, and a change of look is classes in a template plus
+  `npm run css`.
 - **Consistent:** one set of conventions for people and AI tools, kept by
-  `rustfmt`, `clippy -D warnings` and, for the stylesheet, a CI drift gate.
-  These check form; they do not prove that the business rules are right.
+  `rustfmt`, `clippy -D warnings`, the contract tests and, for the
+  stylesheet, a CI drift gate. These check form and the adapters; they do
+  not prove that your business rules are right.
 - **Spec-driven:** a spec in [docs/specs/](docs/specs/) comes first, then
-  tests, then code; [the development log](docs/development.md) maps spec
-  0004's acceptance criteria to their tests.
+  tests, then code; [the development log](docs/development.md) records the
+  checks that were actually run.
 
 Rust is the foundation for its memory and type safety and its speed, but
-the language alone does not make a program secure or fast. Newer tools,
-such as Tailwind CSS here, are adopted where they serve these aims. Done:
-operations declared once and exposed on three transports only through
-explicit route and tool lists
-([spec 0005](docs/specs/0005-app-developer-flow.md)), the article site and
-the Tailwind UI (spec 0004). Not planned here: a library or starter kit
-for other crates; adopters fork the seed.
+the language alone does not make a program secure or fast.
 
 ## New to Rust? Start with the course
 
-The beginner course is a small site that Senu serves on your own computer;
-it is not published on the web. Install Rust and Git as its
+The beginner course is part of the site, online at
+https://efg-technologies.github.io/senu/start.html (English) and
+https://efg-technologies.github.io/senu/ja/start.html (Japanese). It has
+you run the same site on your own computer. Install Rust and Git as its
 [installation chapter](content/en/02-install.md) describes, then run:
 
 ```text
@@ -53,31 +214,25 @@ cargo run --quiet -- site
 
 The first build takes several minutes. Then open http://127.0.0.1:3000/
 (English) or http://127.0.0.1:3000/ja/ (Japanese). The course needs no
-credentials; [Beginner course and `senu site`](#beginner-course-and-senu-site)
-has the details. The rest of this README describes the transport demo.
+credentials; [The site and `senu site`](#the-site-and-senu-site) has the
+details.
 
-## Status: experimental local demo
+## The demo: `senu serve` and `senu mcp`
 
-Senu is a runnable seed, not a product, and it is not audited security
-software. It makes no performance or security claims.
+The `senu` binary is a local demo of the library, not a product.
 
 - **Fixed demo data.** The catalogue is five projects in two tenants, built
-  into the binary and held in memory. Nothing is stored or persisted, and
-  there are no mutations.
+  into the binary and held in memory. Nothing is stored, and there are no
+  mutations.
 - **`senu serve`** listens on a loopback address only. `/projects` uses HTTP
-  Basic and `/api/projects` uses a Bearer token. There is no TLS: credentials
-  travel in cleartext over loopback, where other local users can reach them.
-  Basic auth here is not a production login. There are no sessions, login
-  UI, OAuth, users or roles, rate limiting, request logging or audit trail.
+  Basic and `/api/projects` uses a Bearer token. There is no TLS, so the
+  credentials travel in cleartext over loopback, where other local users can
+  reach them.
 - **`senu mcp --enable-mcp`** speaks MCP over stdio and is off unless that
   flag is given. `SENU_MCP_TOKEN` must be set before it starts. Under the MCP
   authorization spec, stdio servers take credentials from the environment, so
   this trusts the local process that launches Senu. It does not authenticate
-  any remote party. There is no MCP over HTTP and no OAuth.
-- **Mutations need more work.** Basic auth is an ambient browser credential,
-  so any future write operation needs CSRF protection and a new spec.
-- There are no generators or scaffolding, and no published crate:
-  run Senu from a clone of this repository.
+  any remote party.
 
 ## Quickstart
 
@@ -130,11 +285,11 @@ acme-001 and acme-003. Any failed step makes the quickstart exit non-zero.
 The HTML output shows Askama's escaping: the demo project named
 `<script>alert('x')</script> & "Launch" Notes` is rendered as text.
 
-## Beginner course and `senu site`
+## The site and `senu site`
 
-`senu site` serves a beginner course for people who know no Rust, written as
-Markdown articles in `content/en` and `content/ja` and served by Senu itself
-on a loopback address:
+`senu site` serves the library guide and a beginner course for people who
+know no Rust, written as Markdown articles in `content/en` and `content/ja`
+and served by Senu itself on a loopback address:
 
 ```text
 cargo run --quiet -- site
@@ -157,15 +312,23 @@ input. `senu site` takes only `SENU_BIND` and refuses every credential
 variable; it has no `/projects`, `/api/*` or MCP routes.
 [Spec 0003](docs/specs/0003-articles-and-beginner-tutorial.md) describes the
 articles, the site and the course; it supersedes the mdBook tutorial of
-spec 0002. The site is not published anywhere; CI keeps a static snapshot as
-an artifact.
+spec 0002.
+
+The public site is a static snapshot of the same pages.
+`python3 scripts/snapshot_site.py --base-url https://efg-technologies.github.io/senu/ target/site`
+starts `senu site` with `SENU_SITE_URL`, so that every page names its
+canonical address, its translations and its structured data, and adds
+`sitemap.xml`, `robots.txt`, `llms.txt`, `llms-full.txt`, each article's
+Markdown source and `404.html`. The `pages` workflow deploys that directory
+to GitHub Pages from `main`. Articles numbered 10 to 49 are the guide, 00
+to 09 the course, 50 to 89 notes and 90 to 99 appendices.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `senu serve` | HTML and JSON on `SENU_BIND` (default `127.0.0.1:3000`, loopback IP literals only, port 0 allowed) |
-| `senu site` | the Markdown articles as HTML on `SENU_BIND`, with no credentials |
+| `senu site` | the Markdown articles as HTML on `SENU_BIND`, with no credentials; `SENU_SITE_URL` (an `https://` address ending in `/`) adds canonical addresses and structured data |
 | `senu mcp --enable-mcp` | MCP over stdio until stdin closes; exits 0 on EOF |
 | `senu --help` | usage |
 
@@ -206,19 +369,22 @@ query string are never read. Responses carry `Cache-Control: no-store` and
 
 ## Adding an operation
 
-Senu is a seed that you fork, not a library. The application is in
-`src/demo/`; Senu's adapters are in `src/http.rs` and `src/mcp.rs`.
+In your own crate, follow [`examples/inventory.rs`](examples/inventory.rs)
+and the [operations guide](https://efg-technologies.github.io/senu/operations.html).
+In this repository the application is the demo in `src/demo/`, and Senu's
+adapters are in `src/http.rs` and `src/mcp.rs`.
 
 | The application owns | Senu owns |
 |---|---|
-| state, tenants and principals; `Permission` constants; each operation's function, argument struct, result, error codes and `Operation` declaration; views and templates; the route table and the tool list; business tests | Basic and Bearer checks, limits, the method check, the permission before the parameter envelope, error mapping, the CSP and headers, JSON Schemas from the parameters, route and tool validation at startup, and the contract tests |
+| state, tenants and principals; the authenticators' credentials or its own `Authenticate`; `Permission` constants; each operation's function, argument struct, result, error codes and `Operation` declaration; views and templates; the route table and the tool list; business tests | the Basic and Bearer authenticators, limits, the method check, the permission before the parameter envelope, error mapping, the CSP and headers, JSON Schemas from the parameters, route and tool validation at startup, and the contract kit |
 
 1. Add `src/demo/<name>.rs` with a private function
    `fn(&S, &Principal, &Args) -> Result<T, OpError>` that decodes with
    `operation::decode` into a `#[serde(deny_unknown_fields)]` struct, and
    a `pub const OPERATION: Operation<S, T>` with its name, description,
-   permission and string parameters. Errors of its own are
-   `OpError::Invalid { code, phrase }` (400) or `OpError::NotFound`.
+   permission, string parameters and `run: Run::Sync(function)`. Errors of
+   its own are `OpError::Invalid { code, phrase }` (400) or
+   `OpError::NotFound`.
 2. List it in `src/demo/mod.rs`: `.html(path, &OPERATION, view)` or
    `.api("/api/…", &OPERATION)` in `endpoints()`, and
    `mcp::tool(&OPERATION)` in `tools()`. An operation that is declared but
@@ -237,21 +403,22 @@ function; any further policy inside the function runs after the envelope.
 An invalid route table or tool list makes `senu serve` or `senu mcp` exit
 with status 2 before it binds or reads stdin.
 
-Migration (spec 0005, §9): routes, bodies, headers, schemas and errors are
-unchanged. `Permission` was a two-variant enum and is now an open newtype.
-`demo::LIST_PROJECTS` and `demo::VIEW_PROJECT` are the new names, and the
-qualified `Permission::ListProjects` and `Permission::ViewProject` still work
-as associated constants. An exhaustive `match` over the two old variants now
-needs a `_` arm, and `use Permission::{ListProjects, ViewProject}` no longer
-compiles, because associated constants cannot be imported: import
-`demo::{LIST_PROJECTS, VIEW_PROJECT}` or write the qualified paths.
-`OpError` and `HttpError` keep
-`InvalidSearch` and `InvalidId` and gain `Invalid { code, phrase }`, so an
-exhaustive `match` needs a new arm. `AppState` and `McpServer` take a state
-type that defaults to `Catalogue`. `http::router`, `AppState::new`,
-`with_principals`, `McpServer::new`, `with_principal`, `mcp::tools`,
-`TOOL_NAME`, `GET_PROJECT_TOOL`, `operation::list_projects`,
-`operation::get_project` and `Principal::demo_*` keep their paths.
+Migration from 0.1 (spec 0006, §9): the demo's routes, bodies, headers,
+schemas and error codes are unchanged. `run: f` becomes `run: Run::Sync(f)`.
+`Operation::call` and `McpServer::call` are `async`. `Principal::tenant()`
+returns `&TenantId`, which lives in `operation` and is no longer `Copy`;
+`Project` is no longer `Copy` either. `OpError::InvalidSearch`,
+`OpError::InvalidId` and their `HttpError` forms are associated constants
+equal to `Invalid { code, phrase }`, available with the `demo` feature, so
+they still work in expressions and patterns. The error enums are
+`#[non_exhaustive]` and gained `Internal`, so a `match` needs a wildcard
+arm. `AppState` and `McpServer` no longer default their state type to
+`Catalogue`; write `McpServer<Catalogue>`. `AppState::new`,
+`with_principals`, `http::router`, `McpServer::new`, `with_principal`,
+`mcp::tools`, `TOOL_NAME`, `GET_PROJECT_TOOL`, `operation::list_projects`,
+`operation::get_project` and `Principal::demo_*` keep their paths under
+`demo`. `Permission::ListProjects` and `Permission::ViewProject` remain
+associated constants, as since spec 0005.
 
 ## Templates
 
@@ -268,9 +435,11 @@ configures an ERB-like syntax:
 Blocks use `<%! %>`, expressions `<%= %>` and comments `<%# %>`. Plain `<%`
 for blocks does not work, because Askama rejects a delimiter that is a prefix
 of another. A test fails if a template or the configuration uses the `safe`
-filter or turns escaping off. The one exception is the article body, which
-is `TrustedHtml` from the Markdown policy: the same test requires exactly
-one `HtmlSafe` impl in `src/`, on that type. The `senu serve` pages extend
+filter or turns escaping off. The one exception is `TrustedHtml`, which
+only `src/markdown.rs` can build: the article body from the Markdown
+policy, and the JSON-LD element, whose `<`, `>` and `&` are `\u` escapes.
+The same test requires exactly one `HtmlSafe` impl in `src/`, on that
+type. The `senu serve` pages extend
 `serve_base.html`, which holds the head, the stylesheet link and the demo
 banner.
 
@@ -311,14 +480,18 @@ and the stylesheet keeps their notices.
 ```sh
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked --no-default-features --lib -- -D warnings
 cargo test --locked -- --test-threads=2
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --all-features
 scripts/quickstart.sh
 python3 scripts/check_tutorial.py
 python3 scripts/snapshot_site.py target/site
 ```
 
-`tests/contract.rs` runs Senu's contract over every listed route and tool
-of the demo and of a test-only second application. The tests also include
+`tests/contract.rs` runs the contract kit over every listed route and tool
+of the demo and of a test-only second application, `tests/library.rs`
+covers the library API, and `tests/example_inventory.rs` runs the kit over
+`examples/inventory.rs`. The tests also include
 `tests/quickstart_check.rs`, which runs the quickstart's MCP
 checker against fake servers, and `tests/tutorial_checker.rs`, which runs the
 own tests of the tutorial checker and of the site snapshot; both need
@@ -331,8 +504,8 @@ also needs Node 24, npm and access to the npm registry.
 `snapshot_site.py` needs a new or empty directory; it starts `senu site`,
 saves every page as a static file with relative links, the stylesheet and
 the notices, and checks them. CI
-runs the same commands on GitHub-hosted Ubuntu and uploads the snapshot as an
-artifact; nothing is deployed. Read
+runs the same commands on GitHub-hosted Ubuntu; the `pages` workflow builds
+the public snapshot and, on `main`, deploys it. Read
 [the specs](docs/specs/), [the development log](docs/development.md) and
 [the research notes](docs/research.md) for the details.
 

@@ -3,24 +3,24 @@
 //! Tenants and projects are compiled into the binary. Nothing here is read
 //! from a request, the environment or a file.
 
-/// A tenant identifier.
+/// A tenant identifier: Senu's own type, under the path it had in 0.1.
+pub use crate::operation::TenantId;
+
+/// The demo's two tenants.
 ///
-/// The only values are the associated constants, so a tenant can never come
-/// from client input.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TenantId(&'static str);
-
+/// The demo uses only these constants, so a tenant can never come from
+/// client input. A principal carries one of them, and every operation reads
+/// the tenant from the principal.
 impl TenantId {
-    pub const ACME: Self = Self("acme");
-    pub const GLOBEX: Self = Self("globex");
+    /// The tenant of every demo principal.
+    pub const ACME: Self = Self::from_static("acme");
 
-    pub fn as_str(self) -> &'static str {
-        self.0
-    }
+    /// A second tenant, whose projects the demo principals must never see.
+    pub const GLOBEX: Self = Self::from_static("globex");
 }
 
 /// One project in the catalogue.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Project {
     pub id: &'static str,
     pub tenant: TenantId,
@@ -70,8 +70,8 @@ impl Catalogue {
     }
 
     /// The projects that belong to `tenant`, in catalogue order.
-    pub fn for_tenant(&self, tenant: TenantId) -> impl Iterator<Item = &Project> + '_ {
-        self.projects.iter().filter(move |p| p.tenant == tenant)
+    pub fn for_tenant(&self, tenant: &TenantId) -> impl Iterator<Item = &'static Project> {
+        self.projects.iter().filter(move |p| p.tenant == *tenant)
     }
 }
 
@@ -80,14 +80,14 @@ mod tests {
     use super::*;
 
     fn ids(catalogue: &Catalogue, tenant: TenantId) -> Vec<&'static str> {
-        catalogue.for_tenant(tenant).map(|p| p.id).collect()
+        catalogue.for_tenant(&tenant).map(|p| p.id).collect()
     }
 
     #[test]
     fn demo_catalogue_matches_the_spec_table() {
         let all: Vec<(&str, &str, &str)> = [TenantId::ACME, TenantId::GLOBEX]
             .into_iter()
-            .flat_map(|t| Catalogue::demo().for_tenant(t).copied().collect::<Vec<_>>())
+            .flat_map(|t| Catalogue::demo().for_tenant(&t).collect::<Vec<_>>())
             .map(|p| (p.id, p.tenant.as_str(), p.name))
             .collect();
         assert_eq!(
@@ -118,7 +118,7 @@ mod tests {
             ["globex-001", "globex-002"]
         );
         for tenant in [TenantId::ACME, TenantId::GLOBEX] {
-            assert!(catalogue.for_tenant(tenant).all(|p| p.tenant == tenant));
+            assert!(catalogue.for_tenant(&tenant).all(|p| p.tenant == tenant));
         }
     }
 

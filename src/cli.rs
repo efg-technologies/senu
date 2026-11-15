@@ -41,8 +41,8 @@ impl fmt::Display for CliError {
 
 /// The text printed by `senu --help`.
 pub const HELP: &str = "\
-senu: experimental seed that serves one read-only project list as HTML, JSON and MCP,
-and a small site of Markdown articles
+senu: the demo of the Senu library. It serves a read-only project catalogue as HTML,
+JSON and MCP, and a small site of Markdown articles with the guide and a course
 
 Usage:
   senu serve              serve HTML and JSON on a loopback address
@@ -56,8 +56,10 @@ Environment:
   SENU_WEB_PASSWORD   serve: Basic password for /projects
   SENU_API_TOKEN      serve: Bearer token for /api/projects
   SENU_MCP_TOKEN      mcp: token that must be set before the stdio server starts
+  SENU_SITE_URL       site: public https:// address of the saved pages, ending in /
 
-This is a local demo, not production software. See README.md.
+This binary is a local demo, not production software; the library is what you build
+services with. See README.md.
 ";
 
 /// Parses the arguments after the program name.
@@ -165,6 +167,7 @@ mod tests {
             "SENU_WEB_PASSWORD",
             "SENU_API_TOKEN",
             "SENU_MCP_TOKEN",
+            "SENU_SITE_URL",
             "not production",
         ] {
             assert!(HELP.contains(needle), "help lacks {needle}");

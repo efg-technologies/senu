@@ -2,41 +2,196 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-**それぞれの Rust 処理を、Web ページ・JSON API・MCP ツールとして提供します。**
+**Rust の関数を一度宣言すれば、Web ページ・JSON API・MCP ツールとして提供できます。**
 
-Senu は実験的な Rust のシード (たたき台) です。`list_projects` や `get_project` のような純粋関数を一度だけ宣言し、
-[Askama](https://askama.rs/) で描画する HTML ページ、[Axum](https://docs.rs/axum)
-の JSON API、公式 SDK [`rmcp`](https://rust.sdk.modelcontextprotocol.io/) で作った
-stdio 上の [MCP](https://modelcontextprotocol.io/) ツール (明示的に有効化したときだけ)
-の三つの経路で共有します。各経路はそれぞれの認証情報を確かめ、サーバー側で
-プリンシパル (呼び出し主体) を選んでから同じ関数を呼ぶため、三つとも同じプロジェクトを
-同じ順序で返します。これはテストで確認しています。Senu は Markdown の記事による
-小さなサイトも配信し、そこに初心者向けの講座があります。
+[![CI](https://github.com/efg-technologies/senu/actions/workflows/ci.yml/badge.svg)](https://github.com/efg-technologies/senu/actions/workflows/ci.yml)
+[ガイドと講座](https://efg-technologies.github.io/senu/ja/) ·
+[API リファレンス](https://docs.rs/senu) ·
+[変更履歴](CHANGELOG.md) ·
+[セキュリティ](SECURITY.md)
+
+Senu はオープンソースの Rust ライブラリです。読み取り専用の関数を、権限とパラメータと
+一緒に一度だけ宣言します。Senu はそれを、[Askama](https://askama.rs/) で描画する HTML
+ページ、[Axum](https://docs.rs/axum) の JSON API、公式 SDK
+[`rmcp`](https://rust.sdk.modelcontextprotocol.io/) で作った AI アシスタント向けの
+[MCP](https://modelcontextprotocol.io/) ツールとして提供します。3 つとも同じ手順を同じ
+順序で通ります。サイズの上限、メソッド、認証、権限、パラメータの枠、あなたの関数、
+固定のエラー対応の順です。これを証明するテストはキットとして同梱していて、自分のルートに
+対して走らせられます。
+
+```sh
+cargo add senu --no-default-features
+```
+
+## 完全なアプリケーション
+
+[`examples/hello.rs`](examples/hello.rs) の、import より後の全体です。操作が 1 つあり、
+Bearer トークンで守られ、MCP ツールとしても一覧に載っています。
+
+```rust
+// 1. Your state. Here it is one string; in a real service it holds a
+//    database pool.
+struct Greeter {
+    greeting: &'static str,
+}
+
+// 2. A permission, and a principal that holds it.
+const GREET: Permission = Permission::new("greet");
+const GUEST: Principal = Principal::new("guest", TenantId::from_static("main"), &[GREET]);
+
+// 3. The function: state, caller and arguments in, a result or a safe
+//    error out. It knows nothing about HTTP or MCP.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GreetingArgs {
+    name: String,
+}
+
+#[derive(Serialize)]
+struct Greeting {
+    message: String,
+}
+
+fn greeting(greeter: &Greeter, _caller: &Principal, args: &Args) -> Result<Greeting, OpError> {
+    let GreetingArgs { name } = decode(args)?;
+    if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
+        return Err(OpError::Invalid {
+            code: "invalid_name",
+            phrase: "Invalid name",
+        });
+    }
+    Ok(Greeting {
+        message: format!("{}, {name}!", greeter.greeting),
+    })
+}
+
+// 4. The declaration. It exposes nothing by itself.
+const GREETING: Operation<Greeter, Greeting> = Operation {
+    name: "greeting",
+    description: "Greets one person by name.",
+    permission: GREET,
+    params: &[Param::required("name", "Who to greet: 1 to 40 characters.")],
+    run: Run::Sync(greeting),
+};
+
+// 5. Exposure: one JSON route and one MCP tool, both listed by hand.
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let token = Secret::new(std::env::var("HELLO_TOKEN")?)?;
+    let greeter = Greeter { greeting: "Hello" };
+
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        // MCP over stdio: every call runs as GUEST.
+        let server = McpServer::with_tools(greeter, GUEST, vec![mcp::tool(&GREETING)])?;
+        return Ok(server.with_info("hello", "1.0.0").serve_stdio().await?);
+    }
+
+    // HTTP: `router` is an ordinary `axum::Router`.
+    let state = AppState::builder(greeter)
+        .api_auth(Bearer::new(token, GUEST))
+        .build();
+    let router = Endpoints::new()
+        .api("/api/greeting", &GREETING)
+        .into_router(state)?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    axum::serve(listener, router).await?;
+    Ok(())
+}
+```
+
+```text
+$ HELLO_TOKEN=choose-a-long-random-value cargo run --example hello &
+$ curl -H 'Authorization: Bearer choose-a-long-random-value' 'http://127.0.0.1:3000/api/greeting?name=Ada'
+{"message":"Hello, Ada!"}
+```
+
+[`examples/inventory.rs`](examples/inventory.rs) はもう一歩進んだ例です。非同期の操作、
+`X-Api-Key` を読む自作の認証器、2 つのテナント、HTML ページ、スタイルシート、MCP を
+含みます。[`tests/example_inventory.rs`](tests/example_inventory.rs) が、この例に
+Senu の契約テストを走らせます。
+
+## 得られるもの
+
+- **宣言は 1 つ、経路は 3 つ。** `Operation` が名前、説明、権限、文字列パラメータ、関数を
+  持ちます。`Endpoints` にルートを、`mcp::tool` でツールを並べます。宣言しただけでは
+  何も公開されず、並べたものだけが到達可能になります。
+- **検査の順序は 1 つ。** HTML でも JSON でも MCP でも、認証が権限より先、権限が検証より
+  先です。権限のない呼び出し元は、どの入力が有効かを何も知ることができません。
+- **認証は持ち込めます。** `auth::Authenticate` が、リクエストのヘッダーをサーバー側の
+  `Principal` に変えます。Bearer と Basic は組み込みです。セッション、データベースの
+  API キー、プロキシが付けるヘッダーは、このトレイトを実装して扱います。認証器のない
+  ルートは起動時に拒否されます。
+- **同期でも非同期でも。** メモリ上の処理は `Run::Sync`、待つ処理は `Run::Async` です。
+- **安全なエラー。** エラーはどれも固定のコードと文言なので、入力や秘密を繰り返しません。
+  `OpError::Internal` は詳細を運びません。
+- **契約をテストキットとして。** `senu::contract::check` (`contract` 機能) は、あなたの
+  ルートとツールに実際のリクエストを送り、CT-1 から CT-7 の 7 つの規則を確かめます。
+- **ふつうの `axum::Router`。** 好きな場所にバインドし、ログ、タイムアウト、レート制限の
+  tower レイヤーを足せます。
+
+[ガイド](https://efg-technologies.github.io/senu/ja/overview.html)が各部分を説明します。
+[操作](https://efg-technologies.github.io/senu/ja/operations.html)、
+[認証](https://efg-technologies.github.io/senu/ja/authentication.html)、
+[MCP ツール](https://efg-technologies.github.io/senu/ja/mcp-tools.html)、
+[デプロイ](https://efg-technologies.github.io/senu/ja/deployment.html)、
+[テスト](https://efg-technologies.github.io/senu/ja/testing.html)、
+[質問と比較](https://efg-technologies.github.io/senu/ja/faq.html)があります。
+AI アシスタントは [llms.txt](https://efg-technologies.github.io/senu/llms.txt) (英語) を
+読めます。
+
+## 状態と制限
+
+バージョン 0.2 は、ライブラリとして使うための最初のリリースです。API には文書があり、
+契約はテストされています。できないことも、はっきり書いておきます。
+
+- **読み取り専用。** 操作は `GET` で提供し、MCP ツールにはすべて読み取り専用の印が
+  付きます。書き込み操作、フォーム、CSRF トークンはありません。
+- **文字列と完全一致のパス。** パラメータは文字列で、解釈は操作が行います。
+  パスパラメータはありません。
+- **MCP は stdio だけ。** stdio サーバーは、自分を起動したローカルのプロセスを
+  信頼します。HTTP 上の MCP はありません。
+- **セッション、ログイン画面、OAuth はありません。** あなたの `Authenticate` の実装と、
+  あなた自身のルートに置きます。
+- **TLS、ログ、タイムアウト、レート制限はありません。** ルーターの手前か、tower の
+  レイヤーに置きます。
+- **未監査で、1.0 より前です。** 独立したセキュリティ監査は受けておらず、性能についての
+  主張もしません。0.x の間は、マイナーバージョンで API が変わることがあります。変更は
+  すべて [CHANGELOG.md](CHANGELOG.md) に書きます。
+
+このリリースは[仕様 0006](docs/specs/0006-library-release-and-public-site.md) (英語) が
+定めています。
+
+## 機能 (feature)
+
+| 機能 | 既定 | 足されるもの |
+|---|---|---|
+| `demo` | 有効 | カタログのデモ、`senu` バイナリ、講座を含む記事サイト。依存する側は `default-features = false` で外します。 |
+| `contract` | 無効 | テストキット `senu::contract`。`[dev-dependencies]` で有効にします。 |
+
+この README の残りは、デモ、講座、このリポジトリでの開発の説明です。
 
 ## 目指すこと (MCS): 最小・一貫・仕様駆動
 
 - **最小 (Minimal):** アプリケーションの開発者が持つコード、設定、重複をできるだけ少なくします。
-  いまは、記事の追加は Markdown のファイル一つ、見た目の変更はテンプレートのクラスと
-  `npm run css`、処理の追加は宣言一つとルートやツールごとに一行です
-  ([処理を追加する](#処理を追加する) を参照)。
+  操作の追加は宣言 1 つとルートやツールごとに 1 行、記事の追加は Markdown のファイル 1 つ、
+  見た目の変更はテンプレートのクラスと `npm run css` です。
 - **一貫 (Consistent):** 人と AI の道具が同じ決まりで書けるようにし、`rustfmt`、
-  `clippy -D warnings`、スタイルシートについては CI のずれの検査で保ちます。
-  これらが確かめるのは形で、業務の規則が正しいことまでは証明しません。
+  `clippy -D warnings`、契約テスト、スタイルシートについては CI のずれの検査で保ちます。
+  これらが確かめるのは形とアダプターで、業務の規則が正しいことまでは証明しません。
 - **仕様駆動 (Spec-driven):** [docs/specs/](docs/specs/) の仕様が先、次にテスト、最後にコードです。
-  [開発ログ](docs/development.md) は仕様 0004 の受け入れ基準とテストの対応を記録しています。
+  [開発ログ](docs/development.md) は、実際に走らせた検査を記録しています。
 
 Rust を土台にしたのは、メモリーと型の安全性、そして速さのためですが、言語だけで
-プログラムが安全で速くなるわけではありません。Tailwind CSS のような新しい道具は、
-これらの目的に役立つときに採り入れます。実装済み: 一度だけ宣言し、明示したルートとツールの一覧
-だけで三つの経路に公開する処理 ([仕様 0005](docs/specs/0005-app-developer-flow.md))、
-記事のサイト、Tailwind の UI (仕様 0004)。ここでは計画していないもの: ほかのクレートから使う
-ライブラリーやスターターキット。採用する人はこのシードをフォークします。
+プログラムが安全で速くなるわけではありません。
 
 ## Rust がはじめての方は講座から
 
-初心者向けの講座は、Senu が自分のコンピューターで配信する小さなサイトです。Web 上には
-公開していません。講座の[インストールの章](content/ja/02-install.md)のとおりに
-Rust と Git を入れてから、次を実行してください。
+初心者向けの講座はサイトの一部で、
+https://efg-technologies.github.io/senu/ja/start.html (日本語) と
+https://efg-technologies.github.io/senu/start.html (英語) で読めます。講座では、
+同じサイトを自分のコンピューターで動かします。講座の
+[インストールの章](content/ja/02-install.md)のとおりに Rust と Git を入れてから、
+次を実行してください。
 
 ```text
 cd ~
@@ -47,30 +202,21 @@ cargo run --quiet -- site
 
 最初のビルドには数分かかります。そのあと http://127.0.0.1:3000/ja/ (日本語) か
 http://127.0.0.1:3000/ (英語) を開いてください。講座に認証情報は要りません。詳しくは
-[初心者向け講座と `senu site`](#初心者向け講座と-senu-site) を見てください。この README の
-残りは、三つの経路のデモの説明です。
+[サイトと `senu site`](#サイトと-senu-site) を見てください。
 
-## 状態: 実験的なローカルデモ
+## デモ: `senu serve` と `senu mcp`
 
-Senu は動かせるシードであって製品ではなく、監査済みのセキュリティソフトウェアでも
-ありません。性能や安全性についての主張はしません。
+`senu` バイナリはライブラリのローカルデモで、製品ではありません。
 
-- **固定のデモデータ。** カタログは二つのテナントに属する五つのプロジェクトで、
-  バイナリに組み込まれメモリ上にだけあります。保存や永続化はせず、変更操作もありません。
+- **固定のデモデータ。** カタログは 2 つのテナントに属する 5 つのプロジェクトで、
+  バイナリに組み込まれメモリ上にだけあります。保存はせず、変更操作もありません。
 - **`senu serve`** はループバックアドレスだけで待ち受けます。`/projects` は HTTP
   Basic 認証、`/api/projects` は Bearer トークンを使います。TLS はないため、認証情報は
   ループバック上を平文で流れ、同じマシンの他のユーザーから届く可能性があります。
-  ここでの Basic 認証は本番用のログインではありません。セッション、ログイン画面、
-  OAuth、ユーザーやロール、レート制限、リクエストログ、監査記録はありません。
 - **`senu mcp --enable-mcp`** は stdio で MCP を話し、このフラグがない限り無効です。
   起動前に `SENU_MCP_TOKEN` の設定が必要です。MCP の認可仕様では stdio サーバーは
   環境変数から認証情報を受け取るので、これは Senu を起動したローカルのプロセスを
-  信頼する仕組みです。リモートの相手を認証するものではありません。HTTP 上の MCP や
-  OAuth はありません。
-- **変更操作には追加の作業が要ります。** Basic 認証はブラウザが自動で送る認証情報なので、
-  将来の書き込み操作には CSRF 対策と新しい仕様が必要です。
-- ジェネレーターやスキャフォールドはなく、公開済みの crate もありません。
-  このリポジトリを clone して実行してください。
+  信頼する仕組みです。リモートの相手を認証するものではありません。
 
 ## クイックスタート
 
@@ -123,10 +269,11 @@ acme-003 が返った場合にだけ成功します。そうでなければサ�
 HTML の出力では Askama のエスケープが働き、`<script>alert('x')</script> & "Launch" Notes`
 という名前のデモプロジェクトが文字列として表示されます。
 
-## 初心者向け講座と `senu site`
+## サイトと `senu site`
 
-`senu site` は、Rust を知らない人向けの講座を配信します。講座は `content/en` と
-`content/ja` の Markdown の記事で、Senu 自身がループバックアドレスで配信します。
+`senu site` は、ライブラリガイドと、Rust を知らない人向けの講座を配信します。どちらも
+`content/en` と `content/ja` の Markdown の記事で、Senu 自身がループバックアドレスで
+配信します。
 
 ```text
 cargo run --quiet -- site
@@ -147,15 +294,22 @@ cargo run --quiet -- site
 `SENU_BIND` だけを受け付け、認証情報の変数はすべて拒みます。`/projects`、`/api/*`、
 MCP のルートはありません。記事、サイト、講座は
 [仕様 0003](docs/specs/0003-articles-and-beginner-tutorial.md) (英語) にまとめていて、
-仕様 0002 の mdBook のチュートリアルを置き換えます。サイトはどこにも公開していません。
-CI は静的なスナップショットを成果物として保存します。
+仕様 0002 の mdBook のチュートリアルを置き換えます。
+
+公開サイトは、同じページの静的なスナップショットです。
+`python3 scripts/snapshot_site.py --base-url https://efg-technologies.github.io/senu/ target/site`
+は `SENU_SITE_URL` を付けて `senu site` を起動します。すると各ページが正規のアドレス、
+翻訳、構造化データを持ちます。さらに `sitemap.xml`、`robots.txt`、`llms.txt`、
+`llms-full.txt`、各記事の Markdown、`404.html` を書き出します。`pages` ワークフローが、
+`main` からこのディレクトリを GitHub Pages にデプロイします。記事の番号は、10〜49 が
+ガイド、00〜09 が講座、50〜89 がノート、90〜99 が付録です。
 
 ## コマンド
 
 | コマンド | 動作 |
 |---|---|
 | `senu serve` | `SENU_BIND` (既定は `127.0.0.1:3000`、ループバックの IP リテラルのみ、ポート 0 可) で HTML と JSON を提供 |
-| `senu site` | Markdown の記事を `SENU_BIND` で HTML として提供 (認証情報なし) |
+| `senu site` | Markdown の記事を `SENU_BIND` で HTML として提供 (認証情報なし)。`SENU_SITE_URL` (`/` で終わる `https://` のアドレス) を付けると、正規のアドレスと構造化データが加わります |
 | `senu mcp --enable-mcp` | stdin が閉じるまで stdio で MCP を提供し、EOF で終了コード 0 |
 | `senu --help` | 使い方を表示 |
 
@@ -192,23 +346,25 @@ CI は静的なスナップショットを成果物として保存します。
 
 ## 処理を追加する
 
-Senu はライブラリーではなく、フォークして使うシードです。アプリケーションは `src/demo/` に、
-Senu のアダプターは `src/http.rs` と `src/mcp.rs` にあります。
+自分のクレートでは、[`examples/inventory.rs`](examples/inventory.rs) と
+[操作のガイド](https://efg-technologies.github.io/senu/ja/operations.html)に従ってください。
+このリポジトリでは、アプリケーションは `src/demo/` のデモで、Senu のアダプターは
+`src/http.rs` と `src/mcp.rs` にあります。
 
 | アプリケーションが持つもの | Senu が持つもの |
 |---|---|
-| 状態、テナント、プリンシパル。`Permission` の定数。各処理の関数、引数の構造体、結果、エラーコード、`Operation` の宣言。ビューとテンプレート。ルート表とツールの一覧。業務のテスト | Basic と Bearer の確認、サイズの制限、メソッドの確認、パラメーターの枠より先の権限確認、エラーの対応付け、CSP とヘッダー、パラメーターから作る JSON Schema、起動時のルートとツールの検証、契約テスト |
+| 状態、テナント、プリンシパル。認証器に渡す資格情報、または自作の `Authenticate`。`Permission` の定数。各処理の関数、引数の構造体、結果、エラーコード、`Operation` の宣言。ビューとテンプレート。ルート表とツールの一覧。業務のテスト | Basic と Bearer の認証器、サイズの制限、メソッドの確認、パラメーターの枠より先の権限確認、エラーの対応付け、CSP とヘッダー、パラメーターから作る JSON Schema、起動時のルートとツールの検証、契約テストのキット |
 
 1. `src/demo/<name>.rs` を作り、`operation::decode` で `#[serde(deny_unknown_fields)]`
    の構造体に読み込む非公開の関数 `fn(&S, &Principal, &Args) -> Result<T, OpError>` と、
-   名前・説明・権限・文字列のパラメーターを持つ `pub const OPERATION: Operation<S, T>`
-   を書きます。処理固有のエラーは `OpError::Invalid { code, phrase }` (400) か
-   `OpError::NotFound` です。
+   名前・説明・権限・文字列のパラメーター・`run: Run::Sync(関数)` を持つ
+   `pub const OPERATION: Operation<S, T>` を書きます。処理固有のエラーは
+   `OpError::Invalid { code, phrase }` (400) か `OpError::NotFound` です。
 2. `src/demo/mod.rs` に並べます。`endpoints()` に `.html(path, &OPERATION, view)` や
    `.api("/api/…", &OPERATION)` を、`tools()` に `mcp::tool(&OPERATION)` を書きます。
    宣言しても並べていない処理は公開されません。
 3. 業務のテストを処理の隣に書き、`tests/contract.rs` の `demo_subject` に成功する例を
-   一つ足します。すると CT-1 から CT-7 がその処理にも走ります。ルートとツールを
+   1 つ足します。すると CT-1 から CT-7 がその処理にも走ります。ルートとツールを
    両方の README に書くと、`tests/docs_sync.rs` が確かめます。
 
 制限: パラメーターは文字列で、パスは完全一致です。それ以外は `.custom(path, handler)`
@@ -218,19 +374,20 @@ Senu のアダプターは `src/http.rs` と `src/mcp.rs` にあります。
 枠の後になります。ルート表やツールの一覧が正しくないと、`senu serve` や `senu mcp` は
 待ち受けや stdin の読み込みの前に状態 2 で終了します。
 
-移行 (仕様 0005、§9): ルート、本文、ヘッダー、スキーマ、エラーは変わりません。
-`Permission` は二つの値の enum から、値を足せる newtype に変わりました。新しい名前は
-`demo::LIST_PROJECTS` と `demo::VIEW_PROJECT` で、型名を付けた `Permission::ListProjects` と
-`Permission::ViewProject` も関連定数としてそのまま使えます。古い二つの値を網羅する
-`match` には `_` の腕が要ります。また関連定数は `use` で取り込めないので、
-`use Permission::{ListProjects, ViewProject}` はコンパイルできません。
-`demo::{LIST_PROJECTS, VIEW_PROJECT}` を取り込むか、型名を付けて書きます。
-`OpError` と `HttpError` は `InvalidSearch` と `InvalidId` を残したまま
-`Invalid { code, phrase }` が加わるので、網羅的な `match` には腕が一つ要ります。
-`AppState` と `McpServer` は状態の型を取り、既定は `Catalogue` です。`http::router`、
-`AppState::new`、`with_principals`、`McpServer::new`、`with_principal`、`mcp::tools`、
-`TOOL_NAME`、`GET_PROJECT_TOOL`、`operation::list_projects`、`operation::get_project`、
-`Principal::demo_*` は同じパスのままです。
+0.1 からの移行 (仕様 0006、§9): デモのルート、本文、ヘッダー、スキーマ、エラーコードは
+変わりません。`run: f` は `run: Run::Sync(f)` になります。`Operation::call` と
+`McpServer::call` は `async` です。`Principal::tenant()` は `&TenantId` を返します。
+`TenantId` は `operation` に移り、`Copy` ではなくなりました。`Project` も `Copy` では
+ありません。`OpError::InvalidSearch`、`OpError::InvalidId` と、その `HttpError` 版は、
+`Invalid { code, phrase }` に等しい関連定数になりました。`demo` 機能で使え、式でも
+パターンでもこれまでどおり書けます。エラーの enum は `#[non_exhaustive]` になり、
+`Internal` が加わったので、`match` には `_` の腕が要ります。`AppState` と `McpServer` の
+状態の型に `Catalogue` の既定はなくなったので、`McpServer<Catalogue>` と書きます。
+`AppState::new`、`with_principals`、`http::router`、`McpServer::new`、`with_principal`、
+`mcp::tools`、`TOOL_NAME`、`GET_PROJECT_TOOL`、`operation::list_projects`、
+`operation::get_project`、`Principal::demo_*` は、`demo` の下で同じパスのままです。
+`Permission::ListProjects` と `Permission::ViewProject` は、仕様 0005 のときと同じく
+関連定数として残っています。
 
 ## テンプレート
 
@@ -247,8 +404,10 @@ Senu のアダプターは `src/http.rs` と `src/mcp.rs` にあります。
 ブロックは `<%! %>`、式は `<%= %>`、コメントは `<%# %>` です。ブロックに `<%` を
 そのまま使えないのは、Askama がほかの区切り文字の接頭辞になる区切り文字を拒否するためです。
 テンプレートや設定が `safe` フィルターを使ったりエスケープを無効にしたりすると、
-テストが失敗します。唯一の例外は記事の本文で、Markdown のポリシーが作る `TrustedHtml` です。
-同じテストが、`src/` の中の `HtmlSafe` の実装がその型に対する一つだけであることを確かめます。
+テストが失敗します。唯一の例外は `TrustedHtml` で、作れるのは `src/markdown.rs` だけです。
+Markdown のポリシーが作る記事の本文と、`<`、`>`、`&` を `\u` のエスケープにした JSON-LD の
+要素がこれに当たります。同じテストが、`src/` の中の `HtmlSafe` の実装がその型に対する
+一つだけであることを確かめます。
 `senu serve` のページは、head、スタイルシートへのリンク、デモの注意書きを持つ
 `serve_base.html` を拡張します。
 
@@ -287,14 +446,18 @@ cargo run -- site # または serve。これまでどおり
 ```sh
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked --no-default-features --lib -- -D warnings
 cargo test --locked -- --test-threads=2
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --all-features
 scripts/quickstart.sh
 python3 scripts/check_tutorial.py
 python3 scripts/snapshot_site.py target/site
 ```
 
 `tests/contract.rs` は、デモと、テスト専用の二つ目のアプリケーションが並べたすべてのルートと
-ツールに Senu の契約を実行します。テストにはほかに、quickstart の MCP チェッカーを偽のサーバーに対して動かす
+ツールに契約のキットを実行します。`tests/library.rs` はライブラリの API を確かめ、
+`tests/example_inventory.rs` は `examples/inventory.rs` にキットを実行します。
+テストにはほかに、quickstart の MCP チェッカーを偽のサーバーに対して動かす
 `tests/quickstart_check.rs` と、チュートリアル確認スクリプトとサイトのスナップショットの
 それぞれのテストを実行する `tests/tutorial_checker.rs` が含まれ、どちらも `python3` が必要です。
 `check_tutorial.py` は講座を英語、日本語の順に、それぞれ最後のコミットの一時的なコピーで
@@ -304,8 +467,8 @@ python3 scripts/snapshot_site.py target/site
 `snapshot_site.py` には新しいか空のディレクトリーを渡します。
 `senu site` を起動し、すべてのページを相対リンクの静的ファイルとして、スタイルシートと
 ライセンス表示とともに保存して確かめます。
-CI は GitHub がホストする Ubuntu で同じコマンドを実行し、スナップショットを成果物として
-保存します。どこにもデプロイはしません。詳細は
+CI は GitHub がホストする Ubuntu で同じコマンドを実行します。`pages` ワークフローは
+公開用のスナップショットを作り、`main` ではそれをデプロイします。詳細は
 [仕様](docs/specs/)、[開発ログ](docs/development.md)、
 [調査メモ](docs/research.md) を参照してください (いずれも英語)。
 

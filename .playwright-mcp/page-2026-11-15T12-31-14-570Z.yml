@@ -1,0 +1,75 @@
+- generic [active] [ref=f5e1]:
+  - link "Skip to the article" [ref=f5e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f5e3]:
+    - generic [ref=f5e4]:
+      - link "Senu" [ref=f5e5] [cursor=pointer]:
+        - /url: index.html
+      - link "日本語" [ref=f5e6] [cursor=pointer]:
+        - /url: ja/faq.html
+  - generic [ref=f5e7]:
+    - navigation "Contents" [ref=f5e8]:
+      - group [ref=f5e9]:
+        - generic "Contents" [ref=f5e10] [cursor=pointer]
+    - main [ref=f5e11]:
+      - heading "Questions and comparisons" [level=1] [ref=f5e12]
+      - paragraph [ref=f5e13]: About 4 min read
+      - paragraph [ref=f5e14]: Short answers about what Senu is, how it compares with Axum, rmcp and Loco, and what version 0.2 can and cannot do.
+      - heading "What is Senu?" [level=2] [ref=f5e15]
+      - paragraph [ref=f5e16]: Senu is an open-source Rust library that serves one declared function as an HTML page, a JSON API and an MCP tool. You write the function once with its permission and parameters; Senu runs the same authentication, authorization and validation steps in the same order on all three, and ships the tests that prove it.
+      - heading "Is Senu ready for production?" [level=2] [ref=f5e17]
+      - paragraph [ref=f5e18]: "Version 0.2 is the first release meant for use as a library: the API is documented, the security contract is published as tests, and an external crate can bring its own state, authentication and asynchronous work. It is not audited, it covers read-only operations only, and as a 0.x crate its API may change in a minor version. Use it for read-only services after your own review."
+      - heading "How is Senu different from using Axum alone?" [level=2] [ref=f5e19]
+      - paragraph [ref=f5e20]:
+        - text: Senu is built on Axum and returns an
+        - code [ref=f5e21]: "`axum::Router`"
+        - text: ", so it is an addition, not a replacement. Axum gives you routing and extractors and leaves the order of checks to each handler. Senu fixes that order for declared operations, adds the MCP side, and tests both. Use Axum alone for writes, uploads, streaming and WebSockets, and merge a Senu router in for the read-only operations you also want as tools."
+      - heading "How is Senu different from using rmcp alone?" [level=2] [ref=f5e22]
+      - paragraph [ref=f5e23]: "rmcp is the official Rust SDK for MCP, and Senu uses it for the MCP transport. With rmcp alone you write tools, and you get the whole protocol: resources, prompts and the HTTP transport. Senu covers less of MCP (read-only tools over stdio) but gives each tool an HTML page and a JSON route from the same function, with one permission check. Use rmcp alone when MCP is all you need or you need more of the protocol."
+      - heading "How is Senu different from Loco?" [level=2] [ref=f5e24]
+      - paragraph [ref=f5e25]: "Loco is a full framework in the spirit of Rails: an ORM, migrations, generators, background workers and authentication. Senu is a small library with one idea, the declared operation, and no database layer, generators or workers. Choose Loco to build a whole application quickly; choose Senu to add consistent read access for people, programs and assistants to an application you already have."
+      - heading "Does Senu support write operations?" [level=2] [ref=f5e26]
+      - paragraph [ref=f5e27]:
+        - text: Not in version 0.2. Every operation is read-only and served by
+        - code [ref=f5e28]: "`GET`"
+        - text: ", and every MCP tool is marked read-only. Writes need rules of their own, such as CSRF protection for browsers and confirmation for assistants, and will come with a separate specification. Until then, write endpoints belong in your own Axum routes."
+      - heading "Does Senu support MCP over HTTP?" [level=2] [ref=f5e29]
+      - paragraph [ref=f5e30]: Not in version 0.2. MCP tools run over stdio, where the server trusts the local process that starts it. A remote transport must authenticate every request and is planned as a separate specification.
+      - heading "Can AI assistants call a Senu service safely?" [level=2] [ref=f5e31]
+      - paragraph [ref=f5e32]: "Senu lowers the risk in three ways: tools are read-only, each call runs as a principal that holds only the permissions you gave it, and the tenant comes from that principal, not from the assistant's arguments. An assistant can still read whatever that principal may read, so give the MCP principal the narrowest permissions that do the job."
+      - heading "Which authentication methods does Senu support?" [level=2] [ref=f5e33]
+      - paragraph [ref=f5e34]:
+        - text: Bearer tokens and HTTP Basic are built in. Everything else is an implementation of one trait,
+        - code [ref=f5e35]: "`Authenticate`"
+        - text: ", which receives the request headers and returns a principal: session cookies, API keys from a database, or a header set by a trusted proxy. See"
+        - link "authenticate callers" [ref=f5e36] [cursor=pointer]:
+          - /url: authentication.html
+        - text: .
+      - heading "Does Senu need a database?" [level=2] [ref=f5e37]
+      - paragraph [ref=f5e38]: No. Your state is any type you choose, and Senu passes a reference to it into every operation. With a database, the state holds the pool and the operations are asynchronous.
+      - heading "Which Rust version does Senu need?" [level=2] [ref=f5e39]
+      - paragraph [ref=f5e40]: Rust 1.99 or later, with the 2024 edition. It depends on Axum 0.8, Askama 0.16, rmcp 3 and Tokio 1.
+      - heading "How do you test a Senu application?" [level=2] [ref=f5e41]
+      - paragraph [ref=f5e42]:
+        - text: Call
+        - code [ref=f5e43]: "`senu::contract::check`"
+        - text: with your route table and tool list. It sends real requests and verifies seven rules, from "wrong credentials are 401 before anything else" to "the JSON API and the MCP tool give the same answer". See
+        - link "test with the contract" [ref=f5e44] [cursor=pointer]:
+          - /url: testing.html
+        - text: .
+      - heading "What license does Senu use?" [level=2] [ref=f5e45]
+      - paragraph [ref=f5e46]: Apache-2.0. The code is developed in the open at https://github.com/efg-technologies/senu.
+      - heading "Where is the API reference?" [level=2] [ref=f5e47]
+      - paragraph [ref=f5e48]: On https://docs.rs/senu. This guide explains the ideas; the reference documents every type and function.
+      - paragraph [ref=f5e49]:
+        - text: Back to
+        - link "the overview" [ref=f5e50] [cursor=pointer]:
+          - /url: overview.html
+        - text: .
+      - navigation "Previous and next" [ref=f5e51]:
+        - 'link "Previous: Test with the contract" [ref=f5e52] [cursor=pointer]':
+          - /url: testing.html
+        - 'link "Next: Start here: what you will build" [ref=f5e53] [cursor=pointer]':
+          - /url: start.html
+  - contentinfo [ref=f5e54]:
+    - paragraph [ref=f5e55]: Senu is open source under the Apache-2.0 license and is not audited security software. Each page here is a Markdown file in content/en/ of the Senu repository.

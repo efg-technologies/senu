@@ -1502,3 +1502,92 @@ Checks, through the bounded wrapper: `cargo fmt --check`, exit 0;
 passed; `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --lib`,
 exit 0. Not run for this documentation-only change: clippy, the full
 suite, the quickstart, the course checker, the snapshot and the browser.
+
+## Spec 0006: the library release, the public site and discoverability
+
+Base: `fa1b96c` (`main`). Branch `library-release`. Everything below was run
+on Linux with Rust 1.99.1 and Node 26.13.0 on 2026-11-15.
+
+### The core without the demo (LIB-1)
+
+- `cargo clippy --locked --no-default-features --lib -- -D warnings` and the
+  same with `--features contract`: no warning. The core is `operation`,
+  `auth`, `http`, `mcp` and `contract`; no core module imports a module
+  behind `demo` except under `#[cfg(feature = "demo")]`.
+- An external crate outside the repository, `/tmp/senu-external`, with
+  `senu = { path = …, default-features = false }` and `examples/inventory.rs`
+  as its `src/main.rs`, built against its own `askama`, `axum`, `serde` and
+  `tokio`. The binary was then run: `GET /api/stock?sku=BOLT-8` with
+  `X-Api-Key` answered 200 with the item, the same request without the key
+  answered 401 with `WWW-Authenticate: ApiKey realm="inventory"`, the page
+  `/low-stock?below=999` showed `Bolt &#60;M8&#62;`, the asset answered
+  `text/css`, and `inventory mcp` answered `initialize` and
+  `tools/call list_low_stock` over stdio and exited 0 at EOF.
+- `examples/hello.rs` was run the same way: 200 with the greeting, 401
+  without the token, `invalid_name` and `invalid_request`.
+
+### Existing behaviour (EQV-1)
+
+Every test that existed at the base passes. The edits to existing tests are
+the renames of §9 only: `McpServer<Catalogue>` for `McpServer`, `.await` or
+`support::block_on` around `McpServer::call` and `Operation::call`,
+`Run::Sync(f)` for `run: f`, and `&TenantId::ACME` where a tenant is compared
+by reference. `tests/contract.rs` lost its private copy of CT-1 to CT-7,
+which is now `senu::contract::check`, and `Stock::get_stock` became
+asynchronous so that the kit covers `Run::Async`. `src/catalogue.rs` keeps
+its line numbers, so the appendix's patches still apply.
+
+### The new checks can fail (SEC-1)
+
+Each was seen to fail under a matching change and to pass again after the
+change was reverted:
+
+| Change | Failing tests |
+|---|---|
+| Skip the missing-authenticator check in `Endpoints::check` | `library::a_table_without_the_surfaces_authenticator_is_refused` |
+| `Bearer` accepts any token | `contract::the_demo_meets_the_contract`, `contract::a_second_application_meets_the_contract_without_changes_to_senu` |
+| `Operation::admit` checks the envelope before the permission | the same two, and `contract::call_checks_the_permission_then_the_envelope_and_only_then_runs` |
+| The page is sent without its CSP | the same two contract tests |
+
+The snapshot's own tests include refusals: a page without exactly one
+canonical address, description or JSON-LD, a sitemap, `robots.txt` or
+`llms.txt` that disagrees with the saved pages, and an article without a
+page (`scripts/test_snapshot_site.py`, 9 tests).
+
+### Checks at the head of the branch (TST-1, local)
+
+- `cargo fmt --check`: clean.
+- `cargo clippy --locked --all-targets -- -D warnings`: clean.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --all-features`: clean.
+- `cargo test --locked -- --test-threads=2`: 243 passed (150 unit, 89
+  integration, 4 documentation tests). At the base it was 209 (133 unit, 76
+  integration).
+- `scripts/quickstart.sh`: passed.
+- `python3 scripts/check_tutorial.py`: English, then Japanese, passed. The
+  course's recorded output changed in three places: the start page's `<h1>`,
+  the number of filtered tests (131 to 148 and 132 to 149), and chapter 05's
+  `grep script`, which became `grep alert` because every page now has a
+  `<meta name="description">` line that contains "script".
+- `python3 scripts/snapshot_site.py <dir>`: 36 pages.
+- `python3 scripts/snapshot_site.py --base-url https://efg-technologies.github.io/senu/ <dir>`:
+  36 pages and a sitemap of 36 addresses.
+- `cargo package --locked`: 75 files, 601.8 KiB (175.9 KiB compressed), and
+  the packaged crate builds.
+- `npm run css` leaves `assets/ui.generated.css` equal to the committed file.
+
+### Browser check (local snapshot)
+
+The snapshot was served by `python3 -m http.server` and opened in Chromium
+through Playwright at 1280×900 (`index.html`, `ja/operations.html`) and at
+390×800 (`faq.html`). The contents show the four sections with the guide
+first, the current page is marked, code blocks scroll inside their box, and
+at 390 pixels the contents collapse into the `Contents` disclosure.
+
+### Known limits of this evidence
+
+- Nothing here measures search ranking, traffic or citations by assistants
+  (§7). Those need weeks and the owner's Search Console account.
+- `robots.txt` and `llms.txt` sit under `/senu/` on a project site. Crawlers
+  read `robots.txt` only at the host root, so the sitemap must be submitted
+  or the site moved to a domain of its own for it to be found that way.
+- `rust-version` is 1.99 because no older toolchain was tested.

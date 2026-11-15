@@ -1,13 +1,58 @@
-//! Credentials and `Authorization` header parsing.
+//! Authentication: the [`Authenticate`] trait, the built-in [`Basic`] and
+//! [`Bearer`] authenticators, and `Authorization` header parsing.
+//!
+//! An authenticator turns a request's headers into a server-side
+//! [`Principal`], or into nothing. It is the only place where a principal
+//! is chosen, and it never sees the path or the query string.
 //!
 //! Secrets are compared with [`subtle::ConstantTimeEq`]. Senu makes no timing
 //! guarantee beyond what that crate provides; in particular a length
 //! mismatch is detected before the byte comparison.
+//!
+//! # Your own authenticator
+//!
+//! Sessions, API keys in a database or a header set by a trusted proxy are
+//! each an implementation of the trait:
+//!
+//! ```
+//! use axum::http::{HeaderMap, HeaderValue};
+//! use senu::auth::{AuthFuture, Authenticate};
+//! use senu::operation::{Permission, Principal, TenantId};
+//!
+//! const READ: Permission = Permission::new("read");
+//!
+//! struct ApiKeys; // would hold a database pool
+//!
+//! impl ApiKeys {
+//!     async fn lookup(&self, key: &[u8]) -> Option<Principal> {
+//!         // Look the key's hash up, then map the stored roles to constants.
+//!         (key == b"k-123").then(|| Principal::owned("svc-reports", TenantId::new("t-7"), [READ]))
+//!     }
+//! }
+//!
+//! impl Authenticate for ApiKeys {
+//!     fn authenticate<'a>(&'a self, headers: &'a HeaderMap) -> AuthFuture<'a> {
+//!         Box::pin(async move {
+//!             let key = senu::auth::bearer_token(headers)?;
+//!             self.lookup(&key).await
+//!         })
+//!     }
+//!
+//!     fn challenge(&self) -> HeaderValue {
+//!         HeaderValue::from_static("Bearer realm=\"reports\"")
+//!     }
+//! }
+//! ```
 
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 
+use axum::http::{HeaderMap, HeaderValue, header};
 use base64::Engine as _;
 use subtle::ConstantTimeEq;
+
+use crate::operation::Principal;
 
 /// Longest `Authorization` header value that is parsed at all.
 pub const MAX_AUTHORIZATION_BYTES: usize = 1024;
@@ -17,10 +62,32 @@ pub const MAX_AUTHORIZATION_BYTES: usize = 1024;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Secret(String);
 
+/// Why a value cannot be a [`Secret`]. It never holds the value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidSecret;
+
+impl fmt::Display for InvalidSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a secret must be 1 to 256 visible ASCII characters (0x21-0x7E)")
+    }
+}
+
+impl std::error::Error for InvalidSecret {}
+
+/// Longest [`Secret`], in bytes.
+pub const MAX_SECRET_BYTES: usize = 256;
+
 impl Secret {
-    /// Only configuration validation creates secrets.
-    pub(crate) fn new(value: String) -> Self {
-        Self(value)
+    /// Accepts 1 to 256 visible ASCII characters, the values that can
+    /// travel in an `Authorization` header unchanged.
+    pub fn new(value: impl Into<String>) -> Result<Self, InvalidSecret> {
+        let value = value.into();
+        let valid = (1..=MAX_SECRET_BYTES).contains(&value.len()) && value.bytes().all(is_vchar);
+        if valid {
+            Ok(Self(value))
+        } else {
+            Err(InvalidSecret)
+        }
     }
 
     /// Compares `presented` with this secret in constant time for equal
@@ -43,7 +110,14 @@ impl fmt::Debug for Secret {
 /// Credentials presented in an `Authorization` header.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Presented {
-    Basic { user: Vec<u8>, password: Vec<u8> },
+    /// `Basic`, decoded and split at the first colon.
+    Basic {
+        /// The bytes before the first colon.
+        user: Vec<u8>,
+        /// The bytes after it, which may hold more colons.
+        password: Vec<u8>,
+    },
+    /// `Bearer` with its token.
     Bearer(Vec<u8>),
 }
 
@@ -112,6 +186,121 @@ pub fn bearer_matches(header: Option<&[u8]>, token: &Secret) -> bool {
     }
 }
 
+/// The future of [`Authenticate::authenticate`].
+pub type AuthFuture<'a> = Pin<Box<dyn Future<Output = Option<Principal>> + Send + 'a>>;
+
+/// Decides who is calling, from the request's headers alone.
+///
+/// `None` is answered with 401 and [`challenge`](Self::challenge). The path,
+/// the query string and the body are never passed in, so a credential in
+/// the URL cannot be read. Implementations must not log credentials, and
+/// should take the same time for a wrong credential as for a right one
+/// where they can.
+pub trait Authenticate: Send + Sync + 'static {
+    /// The principal for these headers, or `None`.
+    fn authenticate<'a>(&'a self, headers: &'a HeaderMap) -> AuthFuture<'a>;
+
+    /// The `WWW-Authenticate` value sent with 401.
+    fn challenge(&self) -> HeaderValue;
+}
+
+/// The `Authorization` value when exactly one is present. Two headers are
+/// treated as none, so a proxy and the server cannot disagree about which
+/// one counts.
+pub fn single_authorization(headers: &HeaderMap) -> Option<&[u8]> {
+    let mut values = headers.get_all(header::AUTHORIZATION).iter();
+    match (values.next(), values.next()) {
+        (Some(value), None) => Some(value.as_bytes()),
+        _ => None,
+    }
+}
+
+/// The Bearer token of the single `Authorization` header, for an
+/// [`Authenticate`] implementation that looks tokens up itself.
+pub fn bearer_token(headers: &HeaderMap) -> Option<Vec<u8>> {
+    match single_authorization(headers).and_then(parse_authorization) {
+        Some(Presented::Bearer(token)) => Some(token),
+        _ => None,
+    }
+}
+
+/// HTTP Basic with one fixed user, password and principal.
+///
+/// Basic sends the password with every request, so use it only over TLS,
+/// and prefer your own session-based [`Authenticate`] for people.
+#[derive(Debug)]
+pub struct Basic {
+    user: Secret,
+    password: Secret,
+    principal: Principal,
+}
+
+impl Basic {
+    /// Binds `principal` to one user name and password. A user name that
+    /// holds `:` can never match, because Basic splits at the first colon.
+    pub fn new(user: Secret, password: Secret, principal: Principal) -> Self {
+        Self {
+            user,
+            password,
+            principal,
+        }
+    }
+}
+
+impl Authenticate for Basic {
+    fn authenticate<'a>(&'a self, headers: &'a HeaderMap) -> AuthFuture<'a> {
+        let matches = basic_matches(single_authorization(headers), &self.user, &self.password);
+        Box::pin(std::future::ready(matches.then(|| self.principal.clone())))
+    }
+
+    fn challenge(&self) -> HeaderValue {
+        HeaderValue::from_static("Basic realm=\"senu\", charset=\"UTF-8\"")
+    }
+}
+
+/// Bearer tokens, each bound to a principal.
+#[derive(Debug)]
+pub struct Bearer {
+    tokens: Vec<(Secret, Principal)>,
+}
+
+impl Bearer {
+    /// Binds `principal` to one token.
+    pub fn new(token: Secret, principal: Principal) -> Self {
+        Self {
+            tokens: vec![(token, principal)],
+        }
+    }
+
+    /// Adds another token with its own principal. If two entries hold the
+    /// same token, the first one wins.
+    pub fn and(mut self, token: Secret, principal: Principal) -> Self {
+        self.tokens.push((token, principal));
+        self
+    }
+}
+
+impl Authenticate for Bearer {
+    fn authenticate<'a>(&'a self, headers: &'a HeaderMap) -> AuthFuture<'a> {
+        let presented = bearer_token(headers);
+        // Compare with every token, so the time does not depend on which
+        // one matched.
+        let mut found = None;
+        if let Some(presented) = presented {
+            for (token, principal) in &self.tokens {
+                if token.matches(&presented) && found.is_none() {
+                    found = Some(principal.clone());
+                }
+            }
+        }
+        Box::pin(std::future::ready(found))
+    }
+
+    fn challenge(&self) -> HeaderValue {
+        HeaderValue::from_static("Bearer realm=\"senu\"")
+    }
+}
+
 /// Visible ASCII, bytes 0x21 to 0x7E.
 pub(crate) fn is_vchar(byte: u8) -> bool {
     (0x21..=0x7e).contains(&byte)
@@ -127,7 +316,7 @@ mod tests {
     use super::*;
 
     fn secret(value: &str) -> Secret {
-        Secret::new(value.to_owned())
+        Secret::new(value).expect("a valid secret")
     }
 
     fn basic_header(user: &str, password: &str) -> String {
@@ -292,5 +481,116 @@ mod tests {
         assert!(!format!("{presented:?}").contains("sentinel"));
         let presented = parse_authorization(basic_header("u", "sentinel-secret").as_bytes());
         assert!(!format!("{presented:?}").contains("sentinel"));
+    }
+
+    // Spec 0006, §3: the public constructor and the authenticators.
+
+    fn headers(values: &[&str]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(
+                header::AUTHORIZATION,
+                HeaderValue::from_str(value).expect("a header value"),
+            );
+        }
+        headers
+    }
+
+    fn principal(name: &'static str) -> Principal {
+        Principal::new(name, crate::operation::TenantId::from_static("t"), &[])
+    }
+
+    /// The built-in authenticators are ready at once, so one poll is enough.
+    fn now(future: AuthFuture<'_>) -> Option<Principal> {
+        let mut future = future;
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(principal) => principal,
+            std::task::Poll::Pending => panic!("a built-in authenticator was not ready"),
+        }
+    }
+
+    #[test]
+    fn secrets_are_1_to_256_visible_ascii_characters() {
+        assert!(Secret::new("a").is_ok());
+        assert!(Secret::new("a".repeat(256)).is_ok());
+        assert!(Secret::new("!~").is_ok());
+        for bad in [
+            String::new(),
+            "a".repeat(257),
+            "a b".to_owned(),
+            "tab\there".to_owned(),
+            "line\n".to_owned(),
+            "caf\u{e9}".to_owned(),
+            "del\u{7f}".to_owned(),
+        ] {
+            assert_eq!(Secret::new(bad.clone()).err(), Some(InvalidSecret));
+        }
+        let message = InvalidSecret.to_string();
+        assert!(message.contains("1 to 256"), "{message}");
+    }
+
+    #[test]
+    fn only_a_single_authorization_header_is_used() {
+        assert_eq!(single_authorization(&headers(&[])), None);
+        let one = headers(&["Bearer a"]);
+        assert_eq!(single_authorization(&one), Some(&b"Bearer a"[..]));
+        assert_eq!(
+            single_authorization(&headers(&["Bearer a", "Bearer a"])),
+            None
+        );
+        assert_eq!(bearer_token(&one), Some(b"a".to_vec()));
+        assert_eq!(bearer_token(&headers(&["Bearer a", "Bearer a"])), None);
+        assert_eq!(bearer_token(&headers(&[&basic_header("u", "p")])), None);
+    }
+
+    #[test]
+    fn basic_yields_its_principal_only_for_the_exact_pair() {
+        let auth = Basic::new(secret("demo"), secret("web-pass"), principal("web"));
+        let good = basic_header("demo", "web-pass");
+        assert_eq!(
+            now(auth.authenticate(&headers(&[&good]))),
+            Some(principal("web"))
+        );
+        for wrong in [
+            basic_header("demo", "web-pasS"),
+            basic_header("Demo", "web-pass"),
+            basic_header("demo", ""),
+            "Bearer web-pass".to_owned(),
+        ] {
+            assert_eq!(now(auth.authenticate(&headers(&[&wrong]))), None, "{wrong}");
+        }
+        assert_eq!(now(auth.authenticate(&headers(&[]))), None);
+        assert_eq!(now(auth.authenticate(&headers(&[&good, &good]))), None);
+        assert_eq!(auth.challenge(), "Basic realm=\"senu\", charset=\"UTF-8\"");
+        let debug = format!("{auth:?}");
+        assert!(
+            !debug.contains("web-pass") && !debug.contains("demo"),
+            "{debug}"
+        );
+    }
+
+    #[test]
+    fn bearer_maps_each_token_to_its_own_principal() {
+        let auth = Bearer::new(secret("token-a"), principal("a"))
+            .and(secret("token-b"), principal("b"))
+            .and(secret("token-a"), principal("shadowed"));
+        let call = |value: &str| now(auth.authenticate(&headers(&[value])));
+        assert_eq!(call("Bearer token-a"), Some(principal("a")));
+        assert_eq!(call("bearer token-b"), Some(principal("b")));
+        for wrong in [
+            "Bearer token-c",
+            "Bearer token-",
+            "Bearer token-aa",
+            "Token token-a",
+        ] {
+            assert_eq!(call(wrong), None, "{wrong}");
+        }
+        assert_eq!(call(&basic_header("token-a", "token-a")), None);
+        assert_eq!(now(auth.authenticate(&headers(&[]))), None);
+        let twice = headers(&["Bearer token-a", "Bearer token-a"]);
+        assert_eq!(now(auth.authenticate(&twice)), None);
+        assert_eq!(auth.challenge(), "Bearer realm=\"senu\"");
+        assert!(!format!("{auth:?}").contains("token-a"));
     }
 }

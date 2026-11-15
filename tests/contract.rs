@@ -2,7 +2,10 @@
 //! the parameter envelope and its schema, route and tool validation, and
 //! CT-1 to CT-7 over every route and tool that the demo lists and over
 //! `Stock`, a test-only application that shares nothing with the catalogue
-//! but the principal type (GEN-1).
+//! but the principal type (GEN-1). CT-1 to CT-7 themselves are
+//! `senu::contract::check`, the kit that an application runs over its own
+//! table (spec 0006, §5); `Stock` is asynchronous, so the kit also covers
+//! `Run::Async`.
 
 mod support;
 
@@ -17,12 +20,13 @@ use axum::routing::get;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorCode};
 use senu::catalogue::{Catalogue, TenantId};
 use senu::config::{ServeConfig, serve_config};
+use senu::contract::Subject;
 use senu::demo;
 use senu::http::{
     AppState, Declared, Endpoints, Kind, MAX_TARGET_BYTES, RouteError, query_arguments,
 };
 use senu::mcp::{self, McpServer, McpTool, ToolError};
-use senu::operation::{Args, OpError, Operation, Param, Permission, Principal, decode};
+use senu::operation::{Args, OpError, Operation, Param, Permission, Principal, Run, decode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use support::*;
@@ -62,7 +66,7 @@ const GET_STOCK: Operation<Stock, Level> = Operation {
         description: "The SKU: 1 to 16 characters of A-Z, 0-9 and '-'.",
         required: true,
     }],
-    run: get_stock,
+    run: Run::Async(|stock, principal, args| Box::pin(get_stock(stock, principal, args))),
 };
 
 /// Declared but listed nowhere, so it must stay unreachable (CT-6).
@@ -71,11 +75,13 @@ const STOCK_REPORT: Operation<Stock, Level> = Operation {
     description: "Not exposed.",
     permission: VIEW_STOCK,
     params: &[],
-    run: unlisted,
+    run: Run::Sync(unlisted),
 };
 
-fn get_stock(stock: &Stock, _principal: &Principal, args: &Args) -> Result<Level, OpError> {
+/// Asynchronous, as an operation that asks a database would be.
+async fn get_stock(stock: &Stock, _principal: &Principal, args: &Args) -> Result<Level, OpError> {
     let LevelArgs { sku } = decode(args)?;
+    tokio::task::yield_now().await;
     let well_formed = (1..=16).contains(&sku.len())
         && sku
             .bytes()
@@ -119,17 +125,7 @@ fn stock_tools() -> Vec<McpTool<Stock>> {
     vec![mcp::tool(&GET_STOCK)]
 }
 
-// What the contract needs from an application.
-
-struct Subject<S> {
-    state: fn() -> S,
-    endpoints: fn() -> Endpoints<S>,
-    tools: fn() -> Vec<McpTool<S>>,
-    /// Holds every listed operation's permission.
-    principal: Principal,
-    /// The application's own samples: a query that succeeds, per operation.
-    samples: &'static [(&'static str, &'static str)],
-}
+// What the contract needs from each application.
 
 fn demo_subject() -> Subject<Catalogue> {
     Subject {
@@ -160,23 +156,22 @@ fn config() -> ServeConfig {
     serve_config(serve_env()).expect("valid test configuration")
 }
 
-impl<S: Send + Sync + 'static> Subject<S> {
-    fn router(&self, principal: &Principal) -> Router {
-        let state = AppState::with_principals(
-            (self.state)(),
-            &config(),
-            principal.clone(),
-            principal.clone(),
-        );
-        (self.endpoints)()
-            .into_router(state)
-            .expect("a valid table")
-    }
+/// The subject's router behind the demo's configured credentials.
+fn router<S: Send + Sync + 'static>(subject: &Subject<S>, principal: &Principal) -> Router {
+    let state = AppState::with_principals(
+        (subject.state)(),
+        &config(),
+        principal.clone(),
+        principal.clone(),
+    );
+    (subject.endpoints)()
+        .into_router(state)
+        .expect("a valid table")
+}
 
-    fn mcp(&self, principal: &Principal) -> McpServer<S> {
-        McpServer::with_tools((self.state)(), principal.clone(), (self.tools)())
-            .expect("a valid tool list")
-    }
+fn server<S: Send + Sync + 'static>(subject: &Subject<S>, principal: &Principal) -> McpServer<S> {
+    McpServer::with_tools((subject.state)(), principal.clone(), (subject.tools)())
+        .expect("a valid tool list")
 }
 
 struct Reply {
@@ -249,12 +244,12 @@ fn assert_error(reply: &Reply, kind: Kind, status: StatusCode, code: &str, conte
     );
 }
 
-fn call<S>(server: &McpServer<S>, name: &str, args: Value) -> CallToolResult {
+async fn call<S>(server: &McpServer<S>, name: &str, args: Value) -> CallToolResult {
     let Value::Object(args) = args else {
         panic!("arguments must be an object")
     };
     let request = CallToolRequestParams::new(name.to_owned()).with_arguments(args);
-    server.call(&request).expect("a tool result")
+    server.call(&request).await.expect("a tool result")
 }
 
 fn assert_tool_error(result: &CallToolResult, code: &str, context: &str) {
@@ -266,256 +261,20 @@ fn assert_tool_error(result: &CallToolResult, code: &str, context: &str) {
     );
 }
 
-/// Queries that the envelope refuses: an unknown field and, for each
-/// parameter, a repeated key.
-fn refused_queries(params: &[Param]) -> Vec<String> {
-    let mut queries = vec!["zz_unknown=1".to_owned()];
-    queries.extend(
-        params
-            .iter()
-            .map(|param| format!("{0}=a&{0}=b", param.name)),
-    );
-    queries
-}
-
-/// MCP arguments that the envelope refuses: an unknown field and, for each
-/// parameter, `null`, a number and an array.
-fn refused_arguments(params: &[Param]) -> Vec<Value> {
-    let mut arguments = vec![json!({ "zz_unknown": "x" })];
-    for param in params {
-        for value in [Value::Null, json!(7), json!(["a"])] {
-            arguments.push(json!({ param.name: value }));
-        }
-    }
-    arguments
-}
-
-/// CT-1 to CT-7 for every declared HTML and API route and every listed tool.
-async fn check_contract<S: Send + Sync + 'static>(subject: Subject<S>) {
-    let app = subject.router(&subject.principal);
-    let denied = subject.router(&NOBODY);
-    let server = subject.mcp(&subject.principal);
-    let denied_server = subject.mcp(&NOBODY);
-    let routes: Vec<Declared> = (subject.endpoints)()
-        .declared()
-        .into_iter()
-        .filter(|route| route.kind != Kind::Custom)
-        .collect();
-    assert!(!routes.is_empty());
-
-    for route in &routes {
-        let (path, kind) = (route.path, route.kind);
-        let good = credential(kind);
-        let (challenge, wrong) = match kind {
-            Kind::Html => (
-                "Basic realm=\"senu\", charset=\"UTF-8\"",
-                vec![
-                    bearer(API_TOKEN),
-                    basic(WEB_USER, API_TOKEN),
-                    basic("someone", WEB_PASSWORD),
-                ],
-            ),
-            _ => (
-                "Bearer realm=\"senu\"",
-                vec![
-                    basic(WEB_USER, WEB_PASSWORD),
-                    bearer(WEB_PASSWORD),
-                    format!("Token {API_TOKEN}"),
-                ],
-            ),
-        };
-
-        // CT-1: missing, wrong or duplicate credentials, before permission
-        // and input.
-        let mut attempts: Vec<Vec<&str>> = vec![vec![], vec![good.as_str(), good.as_str()]];
-        attempts.extend(wrong.iter().map(|value| vec![value.as_str()]));
-        for authorizations in attempts {
-            for (router, query) in [(&app, ""), (&denied, "?zz_unknown=1")] {
-                let target = format!("{path}{query}");
-                let reply = send(router, request("GET", &target, &authorizations)).await;
-                assert_error(
-                    &reply,
-                    kind,
-                    StatusCode::UNAUTHORIZED,
-                    "unauthorized",
-                    &target,
-                );
-                assert_eq!(
-                    reply.header(header::WWW_AUTHENTICATE),
-                    challenge,
-                    "{target}"
-                );
-            }
-        }
-
-        // CT-2: other methods, bodies and long targets, before credentials.
-        for method in ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] {
-            let reply = send(&app, request(method, path, &[])).await;
-            assert_eq!(
-                reply.status,
-                StatusCode::METHOD_NOT_ALLOWED,
-                "{method} {path}"
-            );
-            assert_eq!(reply.header(header::ALLOW), "GET", "{method} {path}");
-        }
-        let with_body = Request::builder()
-            .uri(path)
-            .header(header::CONTENT_LENGTH, "1")
-            .body(Body::from("x"))
-            .unwrap();
-        let reply = send(&app, with_body).await;
-        assert_error(
-            &reply,
-            kind,
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "payload_too_large",
-            path,
-        );
-        let long = format!("{path}?pad={}", "a".repeat(MAX_TARGET_BYTES));
-        let reply = send(&app, request("GET", &long, &[&good])).await;
-        assert_error(&reply, kind, StatusCode::URI_TOO_LONG, "uri_too_long", path);
-
-        // CT-3 and CT-4: the permission before the envelope.
-        let refused = refused_queries(route.params);
-        for query in std::iter::once(String::new()).chain(refused.iter().cloned()) {
-            let target = format!("{path}?{query}");
-            let reply = send(&denied, request("GET", &target, &[&good])).await;
-            assert_error(&reply, kind, StatusCode::FORBIDDEN, "forbidden", &target);
-        }
-        for query in &refused {
-            let target = format!("{path}?{query}");
-            let reply = send(&app, request("GET", &target, &[&good])).await;
-            assert_error(
-                &reply,
-                kind,
-                StatusCode::BAD_REQUEST,
-                "invalid_request",
-                &target,
-            );
-        }
-    }
-
-    // CT-5 and CT-7: empty arguments and the application's sample give the
-    // same outcome on all three transports, and pages keep their headers.
-    for route in &routes {
-        let name = route.operation.unwrap();
-        let sampled = subject.samples.iter().any(|(sample, _)| *sample == name);
-        assert!(sampled, "{name} has no sample");
-    }
-    let tools = server.tools();
-    for &(name, sample) in subject.samples {
-        let path = |kind| {
-            routes
-                .iter()
-                .find(|route| route.kind == kind && route.operation == Some(name))
-                .map(|route| route.path)
-        };
-        let api_path = path(Kind::Api).expect("an API route");
-        assert!(
-            tools.iter().any(|tool| tool.name == name),
-            "{name} is not a tool"
-        );
-        for query in ["", sample] {
-            let target = format!("{api_path}?{query}");
-            let api = send(&app, request("GET", &target, &[&bearer(API_TOKEN)])).await;
-            let api_json: Value = serde_json::from_str(&api.body).expect("JSON");
-            let args = Value::Object(query_arguments(Some(query)));
-            let result = call(&server, name, args);
-            assert_eq!(
-                result.is_error,
-                Some(api.status != StatusCode::OK),
-                "{target}"
-            );
-            assert_eq!(result.structured_content, Some(api_json), "{target}");
-            if query == sample {
-                assert_eq!(api.status, StatusCode::OK, "{target}");
-            }
-            if let Some(html_path) = path(Kind::Html) {
-                let target = format!("{html_path}?{query}");
-                let page = send(&app, request("GET", &target, &[&credential(Kind::Html)])).await;
-                assert_eq!(page.status, api.status, "{target}");
-                if page.status == StatusCode::OK {
-                    assert!(page.header(header::CONTENT_TYPE).starts_with("text/html"));
-                    assert_eq!(
-                        page.header(header::CONTENT_SECURITY_POLICY),
-                        "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
-                    );
-                    assert_eq!(page.header(header::CACHE_CONTROL), "no-store");
-                    assert_eq!(page.header(header::X_CONTENT_TYPE_OPTIONS), "nosniff");
-                }
-            }
-        }
-    }
-
-    // CT-6: only the listed tools, each read-only with a closed schema that
-    // matches its routes' parameters; CT-3 and CT-4 over MCP.
-    let listed: Vec<String> = (subject.tools)()
-        .iter()
-        .map(|tool| tool.name().to_owned())
-        .collect();
-    let names: Vec<String> = tools.iter().map(|tool| tool.name.to_string()).collect();
-    assert_eq!(names, listed);
-    for tool in &tools {
-        let wire = serde_json::to_value(tool).unwrap();
-        assert_eq!(wire["annotations"]["readOnlyHint"], true, "{wire}");
-        assert_eq!(wire["inputSchema"]["additionalProperties"], false, "{wire}");
-        for route in routes
-            .iter()
-            .filter(|route| route.operation == Some(&*tool.name))
-        {
-            let properties: Vec<&str> = route.params.iter().map(|param| param.name).collect();
-            let schema: Vec<&str> = wire["inputSchema"]["properties"]
-                .as_object()
-                .unwrap()
-                .keys()
-                .map(String::as_str)
-                .collect();
-            let mut sorted = properties.clone();
-            sorted.sort();
-            assert_eq!(schema, sorted, "{wire}");
-        }
-        let params: Vec<Param> = routes
-            .iter()
-            .find(|route| route.operation == Some(&*tool.name))
-            .map_or(Vec::new(), |route| route.params.to_vec());
-        let refused = refused_arguments(&params);
-        for args in std::iter::once(json!({})).chain(refused.iter().cloned()) {
-            let context = format!("{} {args}", tool.name);
-            assert_tool_error(
-                &call(&denied_server, &tool.name, args),
-                "forbidden",
-                &context,
-            );
-        }
-        for args in refused {
-            let context = format!("{} {args}", tool.name);
-            assert_tool_error(
-                &call(&server, &tool.name, args),
-                "invalid_request",
-                &context,
-            );
-        }
-    }
-    let unknown = CallToolRequestParams::new("zz_unknown_tool");
-    let error = server.call(&unknown).expect_err("an unknown tool");
-    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
-    assert!(!error.message.contains("zz_unknown_tool"));
-}
-
 #[tokio::test]
 async fn the_demo_meets_the_contract() {
-    check_contract(demo_subject()).await;
+    senu::contract::check(demo_subject()).await;
 }
 
 #[tokio::test]
 async fn a_second_application_meets_the_contract_without_changes_to_senu() {
-    check_contract(stock_subject()).await;
+    senu::contract::check(stock_subject()).await;
 }
 
 /// The fixture's own business rules, including an error of its own.
 #[tokio::test]
 async fn stock_levels_and_the_invalid_sku_error_on_all_three_transports() {
-    let found = (GET_STOCK.run)(&stock(), &CLERK, &query_arguments(Some("sku=SKU-1")));
+    let found = get_stock(&stock(), &CLERK, &query_arguments(Some("sku=SKU-1"))).await;
     let expected = Level {
         sku: "SKU-1".to_owned(),
         units: 12,
@@ -530,7 +289,9 @@ async fn stock_levels_and_the_invalid_sku_error_on_all_three_transports() {
         ("sku=", invalid),
         ("sku=SKU-9", OpError::NotFound),
     ] {
-        let result = GET_STOCK.call(&stock(), &CLERK, &query_arguments(Some(query)));
+        let result = GET_STOCK
+            .call(&stock(), &CLERK, &query_arguments(Some(query)))
+            .await;
         assert_eq!(result, Err(error), "{query}");
     }
     let wrong = json!({ "sku": 7 });
@@ -540,7 +301,7 @@ async fn stock_levels_and_the_invalid_sku_error_on_all_three_transports() {
     );
 
     let subject = stock_subject();
-    let app = subject.router(&CLERK);
+    let app = router(&subject, &CLERK);
     let api = send(
         &app,
         request("GET", "/api/stock?sku=sku-1", &[&bearer(API_TOKEN)]),
@@ -578,7 +339,12 @@ async fn stock_levels_and_the_invalid_sku_error_on_all_three_transports() {
         "not_found",
         "API",
     );
-    let result = call(&subject.mcp(&CLERK), "get_stock", json!({ "sku": "sku-1" }));
+    let result = call(
+        &server(&subject, &CLERK),
+        "get_stock",
+        json!({ "sku": "sku-1" }),
+    )
+    .await;
     assert_tool_error(&result, "invalid_sku", "MCP");
     let page = send(
         &app,
@@ -611,12 +377,12 @@ const ECHO: Operation<(), Args> = Operation {
             required: false,
         },
     ],
-    run: echo,
+    run: Run::Sync(echo),
 };
 
 /// The same declaration, but `run` must never be reached.
 const EXPLODE: Operation<(), Args> = Operation {
-    run: explode,
+    run: Run::Sync(explode),
     ..ECHO
 };
 
@@ -646,15 +412,15 @@ fn envelope_cases() -> Vec<(Value, bool)> {
     ]
 }
 
-#[test]
-fn call_checks_the_permission_then_the_envelope_and_only_then_runs() {
+#[tokio::test]
+async fn call_checks_the_permission_then_the_envelope_and_only_then_runs() {
     const OTHER: Principal =
         Principal::new("other", TenantId::ACME, &[Permission::new("echo_other")]);
     for (args, admitted) in envelope_cases() {
         let args = args.as_object().unwrap().clone();
         for principal in [&NOBODY, &OTHER] {
             assert_eq!(
-                EXPLODE.call(&(), principal, &args),
+                EXPLODE.call(&(), principal, &args).await,
                 Err(OpError::Forbidden),
                 "{args:?}"
             );
@@ -663,12 +429,16 @@ fn call_checks_the_permission_then_the_envelope_and_only_then_runs() {
             Ok(args.clone())
         } else {
             assert_eq!(
-                EXPLODE.call(&(), &ECHO_USER, &args),
+                EXPLODE.call(&(), &ECHO_USER, &args).await,
                 Err(OpError::InvalidRequest)
             );
             Err(OpError::InvalidRequest)
         };
-        assert_eq!(ECHO.call(&(), &ECHO_USER, &args), expected, "{args:?}");
+        assert_eq!(
+            ECHO.call(&(), &ECHO_USER, &args).await,
+            expected,
+            "{args:?}"
+        );
     }
 }
 
@@ -705,8 +475,8 @@ fn schema_admits(schema: &Value, args: &Value) -> bool {
     })
 }
 
-#[test]
-fn tool_schemas_are_built_from_the_declared_parameters_and_agree_with_the_envelope() {
+#[tokio::test]
+async fn tool_schemas_are_built_from_the_declared_parameters_and_agree_with_the_envelope() {
     let server = McpServer::with_tools((), ECHO_USER, vec![mcp::tool(&ECHO)]).unwrap();
     let tool = serde_json::to_value(&server.tools()[0]).unwrap();
     assert_eq!(tool["name"], "echo");
@@ -730,7 +500,7 @@ fn tool_schemas_are_built_from_the_declared_parameters_and_agree_with_the_envelo
             admitted,
             "{args}"
         );
-        let result = call(&server, "echo", args.clone());
+        let result = call(&server, "echo", args.clone()).await;
         assert_eq!(result.is_error, Some(!admitted), "{args}");
     }
     const NO_REQUIRED: Operation<(), Args> = Operation {
@@ -958,7 +728,7 @@ async fn declared_but_unlisted_operations_are_neither_routed_nor_callable() {
             .iter()
             .all(|route| route.operation == Some(GET_STOCK.name))
     );
-    let app = subject.router(&CLERK);
+    let app = router(&subject, &CLERK);
     for (path, kind) in [
         ("/stock_report", Kind::Html),
         ("/api/stock_report", Kind::Api),
@@ -966,7 +736,7 @@ async fn declared_but_unlisted_operations_are_neither_routed_nor_callable() {
         let reply = send(&app, request("GET", path, &[&credential(kind)])).await;
         assert_error(&reply, kind, StatusCode::NOT_FOUND, "not_found", path);
     }
-    let server = subject.mcp(&CLERK);
+    let server = server(&subject, &CLERK);
     let names: Vec<String> = server
         .tools()
         .iter()
@@ -975,7 +745,7 @@ async fn declared_but_unlisted_operations_are_neither_routed_nor_callable() {
     assert_eq!(names, ["get_stock"]);
     let request = CallToolRequestParams::new(STOCK_REPORT.name);
     assert_eq!(
-        server.call(&request).unwrap_err().code,
+        server.call(&request).await.unwrap_err().code,
         ErrorCode::INVALID_PARAMS
     );
 

@@ -1,12 +1,15 @@
 //! Adapter tests for the MCP handler, called in-process without a transport.
 
+mod support;
+
 use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorCode};
 use senu::catalogue::{Catalogue, TenantId};
 use senu::mcp::{GET_PROJECT_TOOL, McpServer, TOOL_NAME, tools};
 use senu::operation::{MAX_SEARCH_CHARS, Principal};
 use serde_json::{Map, Value, json};
+use support::block_on;
 
-fn server() -> McpServer {
+fn server() -> McpServer<Catalogue> {
     McpServer::new(Catalogue::demo())
 }
 
@@ -17,9 +20,9 @@ fn arguments(value: Value) -> Map<String, Value> {
     }
 }
 
-fn call(server: &McpServer, args: Value) -> CallToolResult {
+fn call(server: &McpServer<Catalogue>, args: Value) -> CallToolResult {
     let request = CallToolRequestParams::new(TOOL_NAME).with_arguments(arguments(args));
-    server.call(&request).expect("a tool result")
+    block_on(server.call(&request)).expect("a tool result")
 }
 
 /// The JSON text content, which must match `structuredContent`.
@@ -149,7 +152,7 @@ fn successful_call_returns_structured_content_and_the_same_json_text() {
 #[test]
 fn missing_arguments_mean_no_search() {
     let request = CallToolRequestParams::new(TOOL_NAME);
-    let result = server().call(&request).expect("a tool result");
+    let result = block_on(server().call(&request)).expect("a tool result");
     let structured = result.structured_content.expect("structuredContent");
     assert_eq!(ids(&structured), ["acme-001", "acme-002", "acme-003"]);
 }
@@ -204,9 +207,9 @@ fn principal_tenant_comes_from_the_server_not_the_arguments() {
 
 // Spec 0005, §4: the `get_project` tool.
 
-fn get(server: &McpServer, args: Value) -> CallToolResult {
+fn get(server: &McpServer<Catalogue>, args: Value) -> CallToolResult {
     let request = CallToolRequestParams::new(GET_PROJECT_TOOL).with_arguments(arguments(args));
-    server.call(&request).expect("a tool result")
+    block_on(server.call(&request)).expect("a tool result")
 }
 
 #[test]
@@ -233,8 +236,7 @@ fn get_project_returns_one_project_or_a_safe_tool_error() {
     assert_eq!(found.structured_content.as_ref(), Some(&expected));
     assert_eq!(text_json(&found), expected);
 
-    let missing = server
-        .call(&CallToolRequestParams::new(GET_PROJECT_TOOL))
+    let missing = block_on(server.call(&CallToolRequestParams::new(GET_PROJECT_TOOL)))
         .expect("a tool result");
     assert_tool_error(&missing, "invalid_request");
     for args in [
@@ -265,7 +267,7 @@ fn get_project_returns_one_project_or_a_safe_tool_error() {
 #[test]
 fn unknown_tool_is_a_jsonrpc_invalid_params_error() {
     let request = CallToolRequestParams::new("delete_projects").with_arguments(Map::new());
-    let error = server().call(&request).expect_err("unknown tool");
+    let error = block_on(server().call(&request)).expect_err("unknown tool");
     assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
     assert_eq!(error.code.0, -32602);
     assert!(

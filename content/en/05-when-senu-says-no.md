@@ -69,7 +69,7 @@ senu: listening on http://127.0.0.1:3000
 Open http://127.0.0.1:3000/scratch. The tag appears as text in a code box and does not run. The second terminal shows how: the angle brackets became `&lt;` and `&gt;`, which a browser displays as `<` and `>` but never runs.
 
 ```sh check=html-shown
-curl -s http://127.0.0.1:3000/scratch | grep script
+curl -s http://127.0.0.1:3000/scratch | grep alert
 ```
 
 ```text check=html-shown

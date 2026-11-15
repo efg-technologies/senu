@@ -87,7 +87,7 @@ pub fn serve<S: Send + Sync + 'static>(
 /// status 2. All names are checked first, then each article's content; errors
 /// follow path order within each phase and are written to stderr.
 pub fn site(config: &SiteConfig, files: &[(&str, &str)]) -> ExitCode {
-    match Site::load(files) {
+    match Site::load_with(files, config.base_url.as_ref()) {
         Ok(site) => listen(config.bind, http::site_router(site)),
         Err(err) => fail(USAGE_OR_CONFIG, &err),
     }
@@ -129,9 +129,6 @@ pub fn mcp<S: Send + Sync + 'static>(
     principal: Principal,
     tools: Vec<McpTool<S>>,
 ) -> ExitCode {
-    use rmcp::ServiceExt as _;
-    use rmcp::service::{QuitReason, ServerInitializeError};
-
     let server = match McpServer::with_tools(state, principal, tools) {
         Ok(server) => server,
         Err(err) => return fail(USAGE_OR_CONFIG, &err),
@@ -140,19 +137,8 @@ pub fn mcp<S: Send + Sync + 'static>(
         Ok(runtime) => runtime,
         Err(_) => return fail(RUNTIME_FAILURE, &"senu: could not start the runtime"),
     };
-    runtime.block_on(async {
-        let running = match server.serve(rmcp::transport::io::stdio()).await {
-            Ok(running) => running,
-            // EOF before `initialize` is a clean shutdown, not an error.
-            Err(ServerInitializeError::ConnectionClosed(_)) => return ExitCode::SUCCESS,
-            Err(_) => return fail(RUNTIME_FAILURE, &"senu: MCP initialization failed"),
-        };
-        match running.waiting().await {
-            Ok(QuitReason::Closed | QuitReason::Cancelled) => ExitCode::SUCCESS,
-            _ => fail(
-                RUNTIME_FAILURE,
-                &"senu: the MCP server stopped unexpectedly",
-            ),
-        }
-    })
+    match runtime.block_on(server.serve_stdio()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => fail(RUNTIME_FAILURE, &err),
+    }
 }

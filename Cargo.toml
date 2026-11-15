@@ -1,13 +1,49 @@
 [package]
 name = "senu"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.99"
-description = "Experimental Rust seed that serves HTML, a JSON API and MCP from one operation layer"
+description = "Declare a Rust function once and serve it as a web page, a JSON API and an MCP tool, with one permission check and one contract test suite"
 license = "Apache-2.0"
 repository = "https://github.com/efg-technologies/senu"
 readme = "README.md"
-publish = false
+homepage = "https://efg-technologies.github.io/senu/"
+documentation = "https://docs.rs/senu"
+keywords = ["mcp", "axum", "web", "api", "askama"]
+categories = ["web-programming::http-server", "web-programming", "asynchronous"]
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/THIRD-PARTY-NOTICES.txt",
+    "/README.md",
+    "/README.ja.md",
+    "/CHANGELOG.md",
+    "/SECURITY.md",
+    "/askama.toml",
+    "/build.rs",
+    "/assets/ui.generated.css",
+    "/content/**/*.md",
+    "/examples/**/*.rs",
+    "/src/**/*.rs",
+    "/templates/*.html",
+]
+
+[features]
+default = ["demo"]
+# The catalogue demo, the `senu` binary and the article site with the course.
+demo = []
+# `senu::contract`: Senu's contract tests as a kit for an application's own tests.
+contract = ["dep:tower"]
+
+[[bin]]
+name = "senu"
+path = "src/main.rs"
+required-features = ["demo"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 askama = { version = "0.16.1", default-features = false, features = ["config", "derive", "std"] }
@@ -20,7 +56,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 subtle = { version = "2.6.1", default-features = false }
 tokio = { version = "1.54.1", default-features = false, features = ["net", "rt"] }
+tower = { version = "0.5.3", default-features = false, features = ["util"], optional = true }
 
 [dev-dependencies]
+# Senu's own tests run the contract kit. A path-only entry is left out of the
+# published manifest.
+senu = { path = ".", features = ["contract"] }
 tokio = { version = "1.54.1", default-features = false, features = ["macros", "rt"] }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }

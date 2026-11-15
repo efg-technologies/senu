@@ -1,0 +1,157 @@
+- generic [active] [ref=e1]:
+  - link "Skip to the article" [ref=e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - link "Senu" [ref=e5] [cursor=pointer]:
+        - /url: index.html
+      - link "日本語" [ref=e6] [cursor=pointer]:
+        - /url: ja/index.html
+  - generic [ref=e7]:
+    - navigation "Contents" [ref=e8]:
+      - group [ref=e9]:
+        - paragraph [ref=e10]: Library guide
+        - list [ref=e11]:
+          - listitem [ref=e12]:
+            - link "What Senu is and when to use it" [ref=e13] [cursor=pointer]:
+              - /url: overview.html
+          - listitem [ref=e14]:
+            - link "Declare an operation" [ref=e15] [cursor=pointer]:
+              - /url: operations.html
+          - listitem [ref=e16]:
+            - link "Authenticate callers" [ref=e17] [cursor=pointer]:
+              - /url: authentication.html
+          - listitem [ref=e18]:
+            - link "Expose operations as MCP tools" [ref=e19] [cursor=pointer]:
+              - /url: mcp-tools.html
+          - listitem [ref=e20]:
+            - link "Deploy and operate" [ref=e21] [cursor=pointer]:
+              - /url: deployment.html
+          - listitem [ref=e22]:
+            - link "Test with the contract" [ref=e23] [cursor=pointer]:
+              - /url: testing.html
+          - listitem [ref=e24]:
+            - link "Questions and comparisons" [ref=e25] [cursor=pointer]:
+              - /url: faq.html
+        - paragraph [ref=e26]: "Course: learn Rust with Senu"
+        - list [ref=e27]:
+          - listitem [ref=e28]:
+            - 'link "Start here: what you will build" [ref=e29] [cursor=pointer]':
+              - /url: start.html
+          - listitem [ref=e30]:
+            - link "Install Rust and get the code" [ref=e31] [cursor=pointer]:
+              - /url: install.html
+          - listitem [ref=e32]:
+            - link "Your first page in the browser" [ref=e33] [cursor=pointer]:
+              - /url: first-page.html
+          - listitem [ref=e34]:
+            - link "Write your first note" [ref=e35] [cursor=pointer]:
+              - /url: first-note.html
+          - listitem [ref=e36]:
+            - link "When Senu says no" [ref=e37] [cursor=pointer]:
+              - /url: when-senu-says-no.html
+          - listitem [ref=e38]:
+            - link "Your first Rust function" [ref=e39] [cursor=pointer]:
+              - /url: first-function.html
+          - listitem [ref=e40]:
+            - link "What you built, and where to go next" [ref=e41] [cursor=pointer]:
+              - /url: next-steps.html
+        - paragraph [ref=e42]: Notes
+        - list [ref=e43]:
+          - listitem [ref=e44]:
+            - link "A sample field note" [ref=e45] [cursor=pointer]:
+              - /url: sample-note.html
+        - paragraph [ref=e46]: Appendices
+        - list [ref=e47]:
+          - listitem [ref=e48]:
+            - 'link "Appendix: the project catalogue (optional)" [ref=e49] [cursor=pointer]':
+              - /url: appendix-catalogue.html
+          - listitem [ref=e50]:
+            - 'link "Appendix: Senu over MCP (optional)" [ref=e51] [cursor=pointer]':
+              - /url: appendix-mcp.html
+    - main [ref=e52]:
+      - 'heading "Senu: one Rust function as a web page, a JSON API and an MCP tool" [level=1] [ref=e53]'
+      - paragraph [ref=e54]: Senu is an open-source Rust library. You declare a read-only function once, with its permission and parameters, and Senu serves it as an HTML page, a JSON API and an MCP tool for AI assistants, with the same authentication order, the same errors and one contract test suite for all three. It is built on Axum, Askama and the official rmcp SDK.
+      - heading "Add it to a project" [level=2] [ref=e55]
+      - code [ref=e57]: cargo add senu --no-default-features
+      - list [ref=e58]:
+        - listitem [ref=e59]:
+          - link "Source on GitHub" [ref=e60] [cursor=pointer]:
+            - /url: https://github.com/efg-technologies/senu
+        - listitem [ref=e61]:
+          - link "API reference on docs.rs" [ref=e62] [cursor=pointer]:
+            - /url: https://docs.rs/senu
+        - listitem [ref=e63]:
+          - link "Crate on crates.io" [ref=e64] [cursor=pointer]:
+            - /url: https://crates.io/crates/senu
+        - listitem [ref=e65]:
+          - 'link "llms.txt: this site as plain text for AI assistants" [ref=e66] [cursor=pointer]':
+            - /url: https://efg-technologies.github.io/senu/llms.txt
+      - heading "Library guide" [level=2] [ref=e67]
+      - paragraph [ref=e68]: How to declare an operation, authenticate callers, expose MCP tools, deploy and test. Start here if you already write Rust.
+      - list [ref=e69]:
+        - listitem [ref=e70]:
+          - link "What Senu is and when to use it" [ref=e71] [cursor=pointer]:
+            - /url: overview.html
+        - listitem [ref=e72]:
+          - link "Declare an operation" [ref=e73] [cursor=pointer]:
+            - /url: operations.html
+        - listitem [ref=e74]:
+          - link "Authenticate callers" [ref=e75] [cursor=pointer]:
+            - /url: authentication.html
+        - listitem [ref=e76]:
+          - link "Expose operations as MCP tools" [ref=e77] [cursor=pointer]:
+            - /url: mcp-tools.html
+        - listitem [ref=e78]:
+          - link "Deploy and operate" [ref=e79] [cursor=pointer]:
+            - /url: deployment.html
+        - listitem [ref=e80]:
+          - link "Test with the contract" [ref=e81] [cursor=pointer]:
+            - /url: testing.html
+        - listitem [ref=e82]:
+          - link "Questions and comparisons" [ref=e83] [cursor=pointer]:
+            - /url: faq.html
+      - 'heading "Course: learn Rust with Senu" [level=2] [ref=e84]'
+      - paragraph [ref=e85]: "A course for complete beginners: you run this site on your own computer, add notes to it in Markdown, and then rebuild a small piece of the Rust code behind it. You need no Rust, only a little JavaScript."
+      - list [ref=e86]:
+        - listitem [ref=e87]:
+          - 'link "Start here: what you will build" [ref=e88] [cursor=pointer]':
+            - /url: start.html
+        - listitem [ref=e89]:
+          - link "Install Rust and get the code" [ref=e90] [cursor=pointer]:
+            - /url: install.html
+        - listitem [ref=e91]:
+          - link "Your first page in the browser" [ref=e92] [cursor=pointer]:
+            - /url: first-page.html
+        - listitem [ref=e93]:
+          - link "Write your first note" [ref=e94] [cursor=pointer]:
+            - /url: first-note.html
+        - listitem [ref=e95]:
+          - link "When Senu says no" [ref=e96] [cursor=pointer]:
+            - /url: when-senu-says-no.html
+        - listitem [ref=e97]:
+          - link "Your first Rust function" [ref=e98] [cursor=pointer]:
+            - /url: first-function.html
+        - listitem [ref=e99]:
+          - link "What you built, and where to go next" [ref=e100] [cursor=pointer]:
+            - /url: next-steps.html
+      - heading "Notes" [level=2] [ref=e101]
+      - paragraph [ref=e102]: Sample notes, and the place where the course has you add your own.
+      - list [ref=e103]:
+        - listitem [ref=e104]:
+          - link "A sample field note" [ref=e105] [cursor=pointer]:
+            - /url: sample-note.html
+      - heading "Appendices" [level=2] [ref=e106]
+      - paragraph [ref=e107]: Optional tours of the demo catalogue, its JSON API and MCP.
+      - list [ref=e108]:
+        - listitem [ref=e109]:
+          - 'link "Appendix: the project catalogue (optional)" [ref=e110] [cursor=pointer]':
+            - /url: appendix-catalogue.html
+        - listitem [ref=e111]:
+          - 'link "Appendix: Senu over MCP (optional)" [ref=e112] [cursor=pointer]':
+            - /url: appendix-mcp.html
+      - navigation "Previous and next" [ref=e113]:
+        - 'link "Next: What Senu is and when to use it" [ref=e114] [cursor=pointer]':
+          - /url: overview.html
+  - contentinfo [ref=e115]:
+    - paragraph [ref=e116]: Senu is open source under the Apache-2.0 license and is not audited security software. Each page here is a Markdown file in content/en/ of the Senu repository.

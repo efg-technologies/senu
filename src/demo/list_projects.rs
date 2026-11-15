@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 
 use super::{LIST_PROJECTS, ProjectSummary};
 use crate::catalogue::Catalogue;
-use crate::operation::{Args, OpError, Operation, Param, Principal, decode};
+use crate::operation::{Args, OpError, Operation, Param, Principal, Run, decode};
 use crate::view;
 
 /// Longest accepted search, counted in Unicode scalar values after trimming.
@@ -25,7 +25,7 @@ pub const OPERATION: Operation<Catalogue, ProjectList> = Operation {
                       and no control characters. Empty means no search.",
         required: false,
     }],
-    run: list_projects,
+    run: Run::Sync(list_projects),
 };
 
 const _: () = assert!(MAX_SEARCH_CHARS == 80, "update the description of q");
