@@ -123,6 +123,12 @@ cargo add senu --no-default-features
 cargo add axum tokio serde --features tokio/macros,tokio/rt,tokio/net,serde/derive
 ```
 
+To build from the Git tag instead of crates.io, use this in place of the first line:
+
+```sh manual
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+```
+
 `--no-default-features` leaves out the `demo` feature, which holds the sample catalogue, the `senu` binary and this site. Add `askama` when you render pages, and enable Senu's `contract` feature under `[dev-dependencies]` for [the contract tests](/testing).
 
 ## When should you use Senu, and when not?

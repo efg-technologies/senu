@@ -5,6 +5,8 @@
 <p><%= frame.labels.intro %></p>
 <h2><%= frame.labels.install %></h2>
 <pre><code>cargo add senu --no-default-features</code></pre>
+<p><%= frame.labels.install_git %></p>
+<pre><code>cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features</code></pre>
 <ul>
 <%! for (text, href) in frame.labels.links %>
 <li><a href="<%= href %>"><%= text %></a></li>

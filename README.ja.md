@@ -23,6 +23,12 @@ Senu はオープンソースの Rust ライブラリです。読み取り専用
 cargo add senu --no-default-features
 ```
 
+crates.io の代わりに、Git のタグからビルドすることもできます。
+
+```sh
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+```
+
 ## 完全なアプリケーション
 
 [`examples/hello.rs`](examples/hello.rs) の、import より後の全体です。操作が 1 つあり、

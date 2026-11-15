@@ -103,6 +103,7 @@ def public_page(lang, address, title, description, alternates):
         f'<!DOCTYPE html>\n<html lang="{lang}">\n<head>\n<title>{title} · Senu</title>\n'
         f'<meta name="description" content="{description}">\n'
         f'<link rel="canonical" href="{address}">\n{links}'
+        f'<link rel="icon" type="image/svg+xml" href="{BASE}icon.svg">\n'
         f'<script type="application/ld+json">{data}</script>\n'
         '<link rel="stylesheet" href="/_senu/ui.css">\n</head>\n<body><a href="/">Home</a></body>\n</html>\n'
     )
@@ -167,6 +168,9 @@ class Public(unittest.TestCase):
         self.assertIn('<meta name="robots" content="noindex">', not_found)
         self.assertIn(f'href="{BASE}"', not_found)
         self.assertTrue((out / ".nojekyll").is_file())
+        icon = (out / "icon.svg").read_text(encoding="utf-8")
+        xml.etree.ElementTree.fromstring(icon)
+        self.assertIn(f'href="{BASE}icon.svg"', not_found)
 
     def test_an_article_without_a_page_is_refused(self):
         pages = public_pages()
@@ -181,6 +185,7 @@ class Public(unittest.TestCase):
             "description": lambda page: page.replace('content="The start page."', 'content=" "'),
             "does not parse": lambda page: page.replace('{"@context"', '{@context'),
             "schema.org graph": lambda page: page.replace('"@graph"', '"graph"'),
+            "does not name the icon": lambda page: page.replace("icon.svg", "favicon.ico"),
         }
         for message, change in broken.items():
             pages = public_pages()
