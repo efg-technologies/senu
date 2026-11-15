@@ -1622,3 +1622,20 @@ The install command on the start page, in the overview and in both READMEs
 gained the Git form,
 `cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features`,
 which works whether or not the crate is on crates.io.
+
+### Publication on crates.io (REL-1)
+
+The owner published `senu` 0.2.0 from `b1283e3`, the commit of the tag
+`v0.2.0`, on 2026-11-15. Checked afterwards:
+
+- The crates.io API lists `senu` 0.2.0, not yanked, Apache-2.0, 180989
+  bytes, `rust-version` 1.99, with the features `default = ["demo"]`,
+  `demo` and `contract`, the five keywords and the three categories.
+- In a new crate outside the repository,
+  `cargo add senu --no-default-features` resolved 0.2.0 from the registry.
+  With `examples/hello.rs` of the tag as `src/main.rs` it built and ran:
+  200 with the greeting for the token, 401 without it, and the `greeting`
+  tool over stdio returned the same JSON.
+- docs.rs built 0.2.0 with all features. The crate page and the pages of
+  `auth::Authenticate`, `http::Endpoints`, `mcp::McpServer`,
+  `operation::Operation` and `contract::check` answered 200.

@@ -1,6 +1,6 @@
 # Senu Spec 0006: The Library Release, the Public Site and Discoverability
 
-Status: implemented, 2026-11-15 (evidence in `docs/development.md`), except the publication on crates.io in REL-1, which needs a registry token. It amends specs 0001, 0003 and 0005 where §9 says so, and it withdraws their non-goals "a library", "publishing" and "the site is not published". Evidence belongs in `docs/development.md`, CI runs and PRs, not in this file.
+Status: implemented, 2026-11-15 (evidence in `docs/development.md`). Version 0.2.0 is on crates.io. It amends specs 0001, 0003 and 0005 where §9 says so, and it withdraws their non-goals "a library", "publishing" and "the site is not published". Evidence belongs in `docs/development.md`, CI runs and PRs, not in this file.
 
 ## 1. Goal and boundaries
 
