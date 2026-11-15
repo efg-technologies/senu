@@ -9,9 +9,11 @@ Usage: python3 scripts/test_snapshot_site.py
 Standard library only.
 """
 
+import json
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -85,6 +87,142 @@ class Save(unittest.TestCase):
             out = self.save(pages, css)
             with self.assertRaisesRegex(snapshot_site.CheckFailed, "notice"):
                 snapshot_site.verify(out, css)
+
+
+BASE = "https://example.org/senu/"
+
+
+def public_page(lang, address, title, description, alternates):
+    """A page as Senu serves it with SENU_SITE_URL: one canonical address,
+    one description, its language versions and one JSON-LD element."""
+    links = "".join(
+        f'<link rel="alternate" hreflang="{code}" href="{href}">\n' for code, href in alternates
+    )
+    data = json.dumps({"@context": "https://schema.org", "@graph": [{"headline": title}]})
+    return (
+        f'<!DOCTYPE html>\n<html lang="{lang}">\n<head>\n<title>{title} · Senu</title>\n'
+        f'<meta name="description" content="{description}">\n'
+        f'<link rel="canonical" href="{address}">\n{links}'
+        f'<script type="application/ld+json">{data}</script>\n'
+        '<link rel="stylesheet" href="/_senu/ui.css">\n</head>\n<body><a href="/">Home</a></body>\n</html>\n'
+    )
+
+
+def public_pages():
+    both = lambda en, ja: [("en", BASE + en), ("ja", BASE + ja), ("x-default", BASE + en)]
+    return {
+        "/": public_page("en", BASE, "Senu", "The start page.", both("", "ja/")),
+        "/ja/": public_page("ja", BASE + "ja/", "Senu", "最初のページ。", both("", "ja/")),
+        "/overview": public_page("en", BASE + "overview.html", "Overview", "What  Senu\nis.",
+                                 both("overview.html", "ja/overview.html")),
+        "/ja/overview": public_page("ja", BASE + "ja/overview.html", "概要", "Senu とは。",
+                                    both("overview.html", "ja/overview.html")),
+        "/start": public_page("en", BASE + "start.html", "Start", "The course begins.",
+                              [("en", BASE + "start.html"), ("x-default", BASE + "start.html")]),
+    }
+
+
+class Public(unittest.TestCase):
+    """The files of a public snapshot (spec 0006, §6)."""
+
+    def save(self, pages):
+        tmp = tempfile.TemporaryDirectory(prefix="snapshot-site-test-")
+        self.addCleanup(tmp.cleanup)
+        out, content = Path(tmp.name) / "out", Path(tmp.name) / "content"
+        for name, text in (("en/01-start.md", "# Start\n\nThe course begins.\n"),
+                           ("en/10-overview.md", "\ufeff# Overview\n\nWhat Senu is.\n"),
+                           ("ja/10-overview.md", "# 概要\n\nSenu とは。\n")):
+            (content / name).parent.mkdir(parents=True, exist_ok=True)
+            (content / name).write_text(text, encoding="utf-8")
+        out.mkdir()
+        snapshot_site.save(out, pages, CSS)
+        snapshot_site.save_public(out, pages, BASE, content)
+        return out
+
+    def test_the_sitemap_llms_files_and_sources_describe_exactly_the_saved_pages(self):
+        out = self.save(public_pages())
+        self.assertEqual(snapshot_site.verify(out, CSS), 5)
+        self.assertEqual(snapshot_site.verify_public(out, BASE), 5)
+        ns = {"s": snapshot_site.SITEMAP_NS, "x": snapshot_site.XHTML_NS}
+        urls = xml.etree.ElementTree.parse(out / "sitemap.xml").getroot().findall("s:url", ns)
+        self.assertEqual([url.find("s:loc", ns).text for url in urls],
+                         [BASE, BASE + "ja/", BASE + "ja/overview.html",
+                          BASE + "overview.html", BASE + "start.html"])
+        langs = [link.get("hreflang") for link in urls[2].findall("x:link", ns)]
+        self.assertEqual(langs, ["en", "ja", "x-default"])
+        self.assertEqual((out / "robots.txt").read_text(encoding="utf-8"),
+                         f"User-agent: *\nAllow: /\n\nSitemap: {BASE}sitemap.xml\n")
+        llms = (out / "llms.txt").read_text(encoding="utf-8")
+        # The guide comes before the course, and descriptions are one line.
+        guide = f"## Library guide\n\n- [Overview]({BASE}overview.md): What Senu is.\n"
+        course = f"## Course: learn Rust with Senu\n\n- [Start]({BASE}start.md): The course begins.\n"
+        self.assertLess(llms.index(guide), llms.index(course))
+        self.assertTrue(llms.startswith("# Senu\n\n> Senu is an open-source Rust library"))
+        full = (out / "llms-full.txt").read_text(encoding="utf-8")
+        self.assertLess(full.index("# Overview\n\nWhat Senu is."), full.index("# Start\n"))
+        self.assertIn(f"Source: {BASE}overview.html (Library guide)", full)
+        self.assertNotIn("\ufeff", full)
+        self.assertEqual((out / "ja/overview.md").read_text(encoding="utf-8"), "# 概要\n\nSenu とは。\n")
+        not_found = (out / "404.html").read_text(encoding="utf-8")
+        self.assertIn('<meta name="robots" content="noindex">', not_found)
+        self.assertIn(f'href="{BASE}"', not_found)
+        self.assertTrue((out / ".nojekyll").is_file())
+
+    def test_an_article_without_a_page_is_refused(self):
+        pages = public_pages()
+        del pages["/start"]
+        with self.assertRaisesRegex(snapshot_site.CheckFailed, "01-start.md has no page /start"):
+            self.save(pages)
+
+    def test_pages_without_exact_metadata_are_refused(self):
+        broken = {
+            "one canonical": lambda page: page.replace('<link rel="canonical"', '<link rel="x"'),
+            "names": lambda page: page.replace(f'canonical" href="{BASE}', f'canonical" href="{BASE}x/'),
+            "description": lambda page: page.replace('content="The start page."', 'content=" "'),
+            "does not parse": lambda page: page.replace('{"@context"', '{@context'),
+            "schema.org graph": lambda page: page.replace('"@graph"', '"graph"'),
+        }
+        for message, change in broken.items():
+            pages = public_pages()
+            pages["/"] = change(pages["/"])
+            self.assertNotEqual(pages["/"], public_pages()["/"], message)
+            try:
+                out = self.save(pages)
+                snapshot_site.verify_public(out, BASE)
+            except snapshot_site.CheckFailed as err:
+                self.assertIn(message, str(err))
+            else:
+                self.fail(f"accepted a page that breaks: {message}")
+
+    def test_files_that_disagree_with_the_pages_are_refused(self):
+        def changed(name, old, new):
+            out = self.save(public_pages())
+            text = (out / name).read_text(encoding="utf-8")
+            self.assertIn(old, text)
+            (out / name).write_text(text.replace(old, new), encoding="utf-8")
+            return out
+
+        cases = (
+            ("sitemap.xml", f"<loc>{BASE}start.html</loc>", f"<loc>{BASE}gone.html</loc>", "sitemap"),
+            ("robots.txt", "Sitemap:", "Site-map:", "robots.txt"),
+            ("llms.txt", f"{BASE}start.md", f"{BASE}gone.md", "llms.txt links"),
+            ("llms.txt", f"- [Start]({BASE}start.md): The course begins.\n", "", "every English"),
+        )
+        for name, old, new, message in cases:
+            with self.assertRaisesRegex(snapshot_site.CheckFailed, message):
+                snapshot_site.verify_public(changed(name, old, new), BASE)
+        out = self.save(public_pages())
+        (out / "ja/overview.html").unlink()
+        with self.assertRaisesRegex(snapshot_site.CheckFailed, "not saved"):
+            snapshot_site.verify_public(out, BASE)
+
+    def test_the_base_url_must_be_https_and_end_in_a_slash(self):
+        for good in ("https://example.org/", BASE, "https://a.b-c.example:8443/x_y/z~1/"):
+            self.assertTrue(snapshot_site.BASE_URL.fullmatch(good), good)
+        for bad in ("http://example.org/", "https://example.org", "https://example.org/senu",
+                    "https://example.org/?q/", "https://example.org/a b/", "https:///x/",
+                    'https://example.org/"/', "https://example.org//"):
+            self.assertFalse(snapshot_site.BASE_URL.fullmatch(bad), bad)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 //! chapter links to its translation, and the two languages run the same
 //! checked commands. BLD-1 (spec 0004): the CSS toolchain is pinned.
 //! DOC-1 (spec 0005): the READMEs list the declared routes and tools.
+//! Spec 0006, §6: the guide's code excerpts are copies of compiled files.
 
 use senu::content::EMBEDDED;
 use senu::site::Site;
@@ -63,9 +64,10 @@ fn readmes_list_exactly_the_declared_routes_and_tools() {
     }
 }
 
-/// The course's chapters, as in the table of spec 0003, §8. Learner notes
-/// outside this table are ignored.
-const CHAPTERS: [&str; 10] = [
+/// The course's chapters, as in the table of spec 0003, §8, and the
+/// library guide of spec 0006 (10 to 16). Learner notes outside this table
+/// are ignored.
+const CHAPTERS: [&str; 17] = [
     "01-start",
     "02-install",
     "03-first-page",
@@ -73,6 +75,13 @@ const CHAPTERS: [&str; 10] = [
     "05-when-senu-says-no",
     "06-first-function",
     "07-next-steps",
+    "10-overview",
+    "11-operations",
+    "12-authentication",
+    "13-mcp-tools",
+    "14-deployment",
+    "15-testing",
+    "16-faq",
     "50-sample-note",
     "90-appendix-catalogue",
     "91-appendix-mcp",
@@ -170,6 +179,57 @@ fn both_languages_run_the_same_checked_blocks() {
             japanese, english,
             "{chapter}: commands, patches and Rust files"
         );
+    }
+}
+
+/// The `rust excerpt=<path>` blocks of one article: the path and the code.
+fn excerpts(locale: &str, chapter: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut open: Option<(String, String)> = None;
+    for line in read(&format!("content/{locale}/{chapter}.md")).lines() {
+        match open.take() {
+            None => {
+                if let Some(path) = line.strip_prefix("```rust excerpt=") {
+                    open = Some((path.to_owned(), String::new()));
+                }
+            }
+            Some(done) if line == "```" => found.push(done),
+            Some((path, mut body)) => {
+                body.push_str(line);
+                body.push('\n');
+                open = Some((path, body));
+            }
+        }
+    }
+    found
+}
+
+/// The guide shows code only from files that the build compiles and the
+/// tests run, so an excerpt cannot drift from what works.
+#[test]
+fn guide_excerpts_are_verbatim_copies_of_compiled_files() {
+    let mut count = 0;
+    for chapter in CHAPTERS {
+        let english = excerpts("en", chapter);
+        assert_eq!(excerpts("ja", chapter), english, "{chapter}");
+        for (path, code) in english {
+            let compiled = ["examples/hello.rs", "examples/inventory.rs"].contains(&&*path)
+                || path == "tests/example_inventory.rs";
+            assert!(compiled, "{chapter}: {path} is not a compiled example");
+            assert!(
+                read(&path).contains(code.trim_end_matches('\n')),
+                "{chapter}: an excerpt is not in {path}:\n{code}"
+            );
+            count += 1;
+        }
+    }
+    assert!(count >= 10, "only {count} excerpts were checked");
+    // Every Rust block of the guide is an excerpt or the one inline sketch.
+    for chapter in CHAPTERS.iter().filter(|c| ("10".."50").contains(&&c[..2])) {
+        let text = read(&format!("content/en/{chapter}.md"));
+        let plain = text.lines().filter(|line| *line == "```rust").count();
+        let allowed = usize::from(*chapter == "15-testing");
+        assert_eq!(plain, allowed, "{chapter}: unchecked Rust blocks");
     }
 }
 

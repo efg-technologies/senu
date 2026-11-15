@@ -1,0 +1,66 @@
+# デプロイと運用
+
+Senu が返すのは、ふつうの `axum::Router` です。バインドし、手前に TLS を置き、サービスに必要なレイヤーを足すのはあなたです。Senu はどれも足さず、自分ではどこにも待ち受けません。
+
+## Senu はリクエストごとに何をしますか
+
+- 2048 バイトを超えるリクエストターゲット (414) と、ボディのあるリクエスト (413) を、ルーティングの前に拒否します。
+- 未知のパスには 404 を返します。`GET` 以外のメソッドには 405 と `Allow: GET` を返します。
+- すべてのレスポンスに `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付けます。
+- すべての HTML ページに Content-Security-Policy を付けます。既定ではスクリプト・画像・フレームを許さず、同一オリジンのスタイルシートとフォームの送信先だけを許します。
+- クエリ文字列から資格情報を読みません。エラーで入力や秘密を繰り返しません。
+
+## あなたに残るのは何ですか
+
+| 関心事 | 置き場所 |
+|---|---|
+| TLS と HSTS | ルーターの手前のリバースプロキシかロードバランサー |
+| リクエストのログとトレース | `tower_http::trace::TraceLayer` のような tower のレイヤー |
+| タイムアウト | `tower_http::timeout::TimeoutLayer` のような tower のレイヤー |
+| レート制限とロックアウト | ゲートウェイか、tower のレイヤー |
+| セッション、ログイン画面、OAuth | あなたの[認証器](/ja/authentication)と、あなた自身のルート |
+| 監査ログ | あなたの操作。`Principal::name` はそのためにあります |
+| ヘルスチェック | `custom` ルート |
+| グレースフルシャットダウン | `axum::serve(...).with_graceful_shutdown(...)` |
+
+## ルーターはどうバインドして提供しますか
+
+```rust excerpt=examples/inventory.rs
+    let router = endpoints()
+        .into_router(state)
+        .map_err(|err| err.to_string())?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .map_err(|err| format!("inventory: cannot listen: {}", err.kind()))?;
+    eprintln!("inventory: listening on http://127.0.0.1:3000");
+    axum::serve(listener, router)
+        .await
+        .map_err(|_| "inventory: the server stopped".to_owned())
+```
+
+レイヤーは、Axum のいつもの書き方でルーターの外側に重ねます。たとえば `router.layer(TraceLayer::new_for_http())` です。Senu のルートを自分の Axum のルートと並べて提供するには、`Router::merge` でルーターを合流させます。足すレイヤーが `Authorization` や `Cookie` のヘッダーをログに書かないようにしてください。
+
+## 秘密はどう扱いますか
+
+起動時に環境変数かシークレットストアから読み、すぐに `Secret` の値に変えます。`Secret::new` は、1〜256 文字の可視 ASCII 以外を拒否します。`Secret` は `Debug` の出力に現れません。設定が間違っているときは、例のように変数名だけをメッセージに書き、値は書きません。バインドする前に失敗させます。認証できないサービスは起動させません。
+
+## 複数のテナントにはどう提供しますか
+
+認証するときにテナントをプリンシパルに入れ、すべての操作の中で `caller.tenant()` を使って絞り込みます。テナントをパラメータとして受け取ってはいけません。契約テストは、`tenant=other` のような未知のパラメータが拒否されることを確かめます。あるテナントのキーで別のテナントのデータが読めないことは、`tests/example_inventory.rs` のように、あなた自身のテストで確かめてください。
+
+## 本番のチェックリストには何を入れますか
+
+1. 手前に TLS があり、外から平文の HTTP に届きません。
+2. 秘密は長くランダムで、クライアントごとに違い、シークレットストアから読みます。
+3. 各プリンシパルは、必要な権限だけを持ちます。
+4. タイムアウト、リクエストログ、レート制限が、tower のレイヤーかゲートウェイにあります。
+5. 待つ操作は `Run::Async` です。エグゼキューターをブロックするものがありません。
+6. `OpError::Internal` は、原因と一緒にサーバー側のログに残ります。
+7. [契約テスト](/ja/testing)と、テナント分離のテストが CI で走ります。
+8. 依存は `Cargo.lock` で固定し、`cargo audit` などで点検します。
+
+## Senu は監査されていますか
+
+いいえ。Senu はテストされていて、契約は実行できるテストとして公開されています。しかし、独立したセキュリティ監査は受けていません。性能についての主張もしません。認証の経路に置く依存として、ほかの依存と同じように自分で確かめてください。脆弱性は、リポジトリの `SECURITY.md` に書いてある方法で非公開に報告してください。
+
+次のページ: [契約でテストする](/ja/testing)。

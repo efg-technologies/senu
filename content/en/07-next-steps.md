@@ -11,7 +11,7 @@ You started a Rust program, read its pages in a browser, wrote notes in Markdown
 
 ## Honest limits
 
-Senu is an experimental seed, not a product. Its site runs only on your own computer, it reads the notes only when it is built, and it has no accounts, no database and no way to edit a note from the browser. It has been tested on Linux only.
+The program you ran is the demo of the Senu library, not a product. This site reads the notes only when it is built, and it has no accounts, no database and no way to edit a note from the browser. It has been tested on Linux only. The library behind it is what services are built with; [the library guide](/overview) starts there.
 
 ## Where to go next
 
