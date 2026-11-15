@@ -394,6 +394,7 @@ fn index_seo(base: &BaseUrl, labels: &'static Labels, homes: &[&'static str; 2])
         json_ld: TrustedHtml::json_ld(&data),
         markdown: None,
         llms: format!("{}llms.txt", base.as_str()),
+        icon: format!("{}icon.svg", base.as_str()),
     }
 }
 
@@ -450,6 +451,7 @@ fn article_seo(base: &BaseUrl, page: &Page<'_>) -> Seo {
         kind: "article",
         json_ld: TrustedHtml::json_ld(&data),
         llms: format!("{}llms.txt", base.as_str()),
+        icon: format!("{}icon.svg", base.as_str()),
     }
 }
 
@@ -996,6 +998,7 @@ mod tests {
                 "ld+json",
                 "text/markdown",
                 "llms.txt",
+                "rel=\"icon\"",
             ] {
                 assert!(!page.contains(absent), "{path} has {absent}");
             }
@@ -1017,6 +1020,9 @@ mod tests {
             let page = page(&site, path);
             assert_eq!(count(&page, "<link rel=\"canonical\""), 1, "{path}");
             assert_eq!(count(&page, "property=\"og:url\""), 1, "{path}");
+            let icon = "<link rel=\"icon\" type=\"image/svg+xml\" \
+                        href=\"https://example.org/senu/icon.svg\">";
+            assert_eq!(count(&page, icon), 1, "{path}");
             json_ld(&page);
         }
 

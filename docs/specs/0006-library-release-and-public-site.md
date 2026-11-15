@@ -1,6 +1,6 @@
 # Senu Spec 0006: The Library Release, the Public Site and Discoverability
 
-Status: draft, 2026-11-15. It amends specs 0001, 0003 and 0005 where §9 says so, and it withdraws their non-goals "a library", "publishing" and "the site is not published". Evidence belongs in `docs/development.md`, CI runs and PRs, not in this file.
+Status: implemented, 2026-11-15 (evidence in `docs/development.md`), except the publication on crates.io in REL-1, which needs a registry token. It amends specs 0001, 0003 and 0005 where §9 says so, and it withdraws their non-goals "a library", "publishing" and "the site is not published". Evidence belongs in `docs/development.md`, CI runs and PRs, not in this file.
 
 ## 1. Goal and boundaries
 
@@ -44,7 +44,7 @@ Every invariant of spec 0005, §6 holds. In addition: an operation route never r
 - **Base URL.** `senu site` accepts `SENU_SITE_URL`, an absolute `https://` URL ending in `/`. Without it nothing changes. With it every page carries a canonical URL, `hreflang` alternates (`en`, `ja`, `x-default`), Open Graph and Twitter card tags and JSON-LD. Canonical addresses follow the snapshot's file names (`/install` is `install.html`, `/ja/` is `ja/`), because the public site is the snapshot. `senu serve` and `senu mcp` refuse the variable.
 - **Description.** Every page has a `<meta name="description">`: the article's first paragraph as plain text, cut at a word or character boundary to at most 160 characters, and the index's intro.
 - **Structured data.** JSON-LD is built by `serde_json` and emitted in one `<script type="application/ld+json">` whose `<`, `>` and `&` are `\u`-escaped. `TrustedHtml::json_ld` in `src/markdown.rs` builds the element, so `TrustedHtml` stays the crate's only `HtmlSafe` impl and only that module can construct one. The index describes a `SoftwareSourceCode`; an article is a `TechArticle` with a `BreadcrumbList`; the FAQ article also lists its questions as a `FAQPage`, taken from its headings.
-- **Snapshot.** `snapshot_site.py --base-url URL` also writes `sitemap.xml` (every page with its alternates), `robots.txt` (allow all, with the sitemap), `llms.txt` (the project in one paragraph, then every English guide and course page with its description), `llms-full.txt` (the English Markdown sources in order), each article's Markdown source next to its page as `<slug>.md`, and `404.html`. Links stay relative, so the snapshot still works from disk.
+- **Snapshot.** `snapshot_site.py --base-url URL` also writes `sitemap.xml` (every page with its alternates), `robots.txt` (allow all, with the sitemap), `llms.txt` (the project in one paragraph, then every English guide and course page with its description), `llms-full.txt` (the English Markdown sources in order), each article's Markdown source next to its page as `<slug>.md`, `404.html` and `icon.svg`, which every page names so that a browser does not ask the host for `/favicon.ico`. Each article links its Markdown source, and the index links `llms.txt`. Links stay relative, so the snapshot still works from disk.
 - **Deployment.** A `pages` workflow builds the snapshot from `main` and deploys it to GitHub Pages; pull requests only build it. The canonical host is the Pages URL until a custom domain is configured in the workflow.
 
 ## 7. Discoverability: what is built and what is measured

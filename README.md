@@ -25,6 +25,12 @@ routes.
 cargo add senu --no-default-features
 ```
 
+To build from the Git tag instead of crates.io:
+
+```sh
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+```
+
 ## A complete application
 
 This is [`examples/hello.rs`](examples/hello.rs) after its imports: one

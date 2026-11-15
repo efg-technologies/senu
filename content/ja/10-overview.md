@@ -123,6 +123,12 @@ cargo add senu --no-default-features
 cargo add axum tokio serde --features tokio/macros,tokio/rt,tokio/net,serde/derive
 ```
 
+crates.io の代わりに Git のタグからビルドするには、1 行目を次のコマンドに置き換えます。
+
+```sh manual
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+```
+
 `--no-default-features` は `demo` 機能を外します。`demo` にはサンプルのカタログ、`senu` バイナリ、このサイトが入っています。ページを描画するなら `askama` を足します。[契約テスト](/ja/testing)を使うなら、`[dev-dependencies]` で Senu の `contract` 機能を有効にします。
 
 ## いつ使い、いつ使わないか

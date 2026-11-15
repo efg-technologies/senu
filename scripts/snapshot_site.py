@@ -28,7 +28,8 @@ sources in the order of the contents), each article's Markdown source next
 to its page, 404.html and .nojekyll. They are then checked: every page has
 exactly one canonical address, one description and one JSON-LD element
 that parses, the sitemap lists exactly the saved pages, and every link of
-llms.txt names a saved Markdown file. This script deploys nothing; the
+llms.txt names a saved Markdown file. icon.svg is written too, and every
+page must name it. This script deploys nothing; the
 `pages` workflow uploads the directory.
 """
 
@@ -64,6 +65,15 @@ SECTIONS = (
     ("Course: learn Rust with Senu", range(0, 10)),
     ("Notes", range(50, 90)),
     ("Appendices", range(90, 100)),
+)
+# The site's icon: a white S on a dark rounded square. Pages name it, so
+# that a browser does not ask the host for /favicon.ico.
+ICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="12" fill="#111827"/>'
+    '<path fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" '
+    'd="M43 21c-3-5-9-7-14-6-6 1-9 6-8 10 2 9 23 5 23 16 0 5-5 9-12 9-6 0-10-3-12-7"/>'
+    "</svg>\n"
 )
 SUMMARY = (
     "Senu is an open-source Rust library (Apache-2.0). You declare a read-only function once, "
@@ -274,12 +284,14 @@ def save_public(out, pages, base_url, content):
         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         '<meta name="robots" content="noindex">\n<title>Page not found · Senu</title>\n'
+        f'<link rel="icon" type="image/svg+xml" href="{base_url}icon.svg">\n'
         f'<link rel="stylesheet" href="{base_url}_senu/ui.css">\n</head>\n'
         '<body class="prose mx-auto px-4 py-8 font-sans">\n<main>\n<h1>Page not found</h1>\n'
         f'<p>This address has no page. Start again from <a href="{base_url}">the Senu start page</a>'
         f' or <a href="{base_url}ja/">日本語のトップページ</a>.</p>\n</main>\n</body>\n</html>\n'
     )
     (out / "404.html").write_text(not_found, encoding="utf-8")
+    (out / "icon.svg").write_text(ICON, encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
 
@@ -327,7 +339,12 @@ def verify_public(out, base_url):
             raise CheckFailed(f"llms.txt links to {link}, which was not saved")
     if len(links) != sum(1 for _ in out.glob("*.md")):
         raise CheckFailed("llms.txt does not list every English article")
-    for name in ("llms-full.txt", "404.html", ".nojekyll"):
+    for path, meta in pages.items():
+        if f'<link rel="icon" type="image/svg+xml" href="{base_url}icon.svg">' not in path.read_text(
+            encoding="utf-8"
+        ):
+            raise CheckFailed(f"{path.relative_to(out).as_posix()} does not name the icon")
+    for name in ("llms-full.txt", "404.html", "icon.svg", ".nojekyll"):
         if not (out / name).is_file():
             raise CheckFailed(f"{name} was not saved")
     return len(listed)

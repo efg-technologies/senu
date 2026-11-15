@@ -54,6 +54,8 @@ pub struct Labels {
     pub description: &'static str,
     /// The heading above the install command on the index.
     pub install: &'static str,
+    /// The sentence before the command that adds Senu from its Git tag.
+    pub install_git: &'static str,
     /// The links under the install command: (text, address).
     pub links: [(&'static str, &'static str); 3],
     /// The text of the index's link to `llms.txt`, shown on the public site.
@@ -136,6 +138,7 @@ pub static ENGLISH: Labels = Labels {
     description: "Senu is a Rust library that serves one declared function as an HTML page, \
                   a JSON API and an MCP tool, with shared authentication, errors and contract tests.",
     install: "Add it to a project",
+    install_git: "Or build it from the Git tag instead of crates.io:",
     links: [
         ("Source on GitHub", REPOSITORY),
         ("API reference on docs.rs", DOCS_RS),
@@ -188,6 +191,7 @@ pub static JAPANESE: Labels = Labels {
     description: "Senu は、一度宣言した関数を HTML ページ・JSON API・MCP ツールとして提供する Rust ライブラリです。\
                   認証・エラー・契約テストを 3 つで共有します。",
     install: "プロジェクトに追加する",
+    install_git: "crates.io の代わりに、Git のタグからビルドすることもできます。",
     links: [
         ("GitHub のソースコード", REPOSITORY),
         ("docs.rs の API リファレンス", DOCS_RS),
@@ -250,6 +254,9 @@ pub struct Seo {
     pub markdown: Option<String>,
     /// The snapshot's `llms.txt`.
     pub llms: String,
+    /// The snapshot's icon, so that a browser does not ask the host for
+    /// `/favicon.ico`.
+    pub icon: String,
 }
 
 /// What the index and article templates share.

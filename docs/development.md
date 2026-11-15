@@ -1591,3 +1591,34 @@ at 390 pixels the contents collapse into the `Contents` disclosure.
   read `robots.txt` only at the host root, so the sitemap must be submitted
   or the site moved to a domain of its own for it to be found that way.
 - `rust-version` is 1.99 because no older toolchain was tested.
+
+### The deployed site (PUB-1)
+
+The `pages` workflow deployed `0a28237` to
+https://efg-technologies.github.io/senu/ on 2026-11-15. Measured against
+the live site right after:
+
+- `sitemap.xml` lists 36 addresses. Each answered 200 with exactly one
+  canonical link equal to its own address, one description, one `<h1>` and
+  one JSON-LD element that parses. Across the pages the graphs hold 2
+  `WebSite`, 2 `SoftwareSourceCode`, 34 `TechArticle`, 34 `BreadcrumbList`
+  and 2 `FAQPage` nodes.
+- `robots.txt`, `llms.txt`, `llms-full.txt`, `overview.md`, `ja/faq.md`,
+  `_senu/ui.css` and `THIRD-PARTY-NOTICES.txt` answered 200 with the
+  expected content types; an unknown path answered 404 with the `noindex`
+  page.
+- Lighthouse 13.6.0 with headless Chromium, on `/`, `/overview.html` and
+  `/ja/faq.html`: performance 100, accessibility 100, SEO 100 and best
+  practices 96 on all three. The one failed audit was a console error for
+  `https://efg-technologies.github.io/favicon.ico`, which a project site
+  cannot serve. The pages now name `icon.svg` instead; the snapshot writes
+  it and refuses a page that does not name it.
+
+Not measured: indexing, ranking and citations (§7).
+
+### After the first deployment
+
+The install command on the start page, in the overview and in both READMEs
+gained the Git form,
+`cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features`,
+which works whether or not the crate is on crates.io.
