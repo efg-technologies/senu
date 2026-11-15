@@ -46,7 +46,10 @@ jobs:
       - name: The package holds only the intended files and builds from them
         run: |
           cargo package --locked --list > "$RUNNER_TEMP/files.txt"
-          ! grep -Ev '^(\.cargo_vcs_info\.json|Cargo\.(toml|toml\.orig|lock)|LICENSE|THIRD-PARTY-NOTICES\.txt|README(\.ja)?\.md|CHANGELOG\.md|SECURITY\.md|askama\.toml|build\.rs|assets/ui\.generated\.css|content/(en|ja)/[0-9][0-9]-[a-z0-9-]+\.md|examples/[a-z_]+\.rs|src/[a-z_/]+\.rs|templates/[a-z_]+\.html)$' "$RUNNER_TEMP/files.txt"
+          if grep -Ev '^(\.cargo_vcs_info\.json|Cargo\.(toml|toml\.orig|lock)|LICENSE|THIRD-PARTY-NOTICES\.txt|README(\.ja)?\.md|CHANGELOG\.md|SECURITY\.md|askama\.toml|build\.rs|assets/ui\.generated\.css|content/(en|ja)/[0-9][0-9]-[a-z0-9-]+\.md|examples/[a-z_]+\.rs|src/[a-z_/]+\.rs|templates/[a-z_]+\.html)$' "$RUNNER_TEMP/files.txt"; then
+            echo "the package holds files outside the list above" >&2
+            exit 1
+          fi
           cargo package --locked
 
   tutorial:
