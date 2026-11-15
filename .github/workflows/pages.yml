@@ -19,9 +19,9 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  # The canonical address of the site. Change it here, and in Cargo.toml's
-  # `homepage`, when a custom domain is configured.
-  SITE_URL: https://efg-technologies.github.io/senu/
+  # The canonical address of the site: the custom domain configured for
+  # GitHub Pages. Change it here and in Cargo.toml's `homepage` together.
+  SITE_URL: https://senu.efg-technologies.com/
 
 jobs:
   build:

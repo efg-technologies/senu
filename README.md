@@ -5,7 +5,7 @@
 **Declare a Rust function once. Serve it as a web page, a JSON API and an MCP tool.**
 
 [![CI](https://github.com/efg-technologies/senu/actions/workflows/ci.yml/badge.svg)](https://github.com/efg-technologies/senu/actions/workflows/ci.yml)
-[Guide and course](https://efg-technologies.github.io/senu/) ·
+[Guide and course](https://senu.efg-technologies.com/) ·
 [API reference](https://docs.rs/senu) ·
 [Changelog](CHANGELOG.md) ·
 [Security](SECURITY.md)
@@ -142,15 +142,15 @@ contract over it.
 - **A plain `axum::Router`.** Bind it where you like and add tower layers
   for logging, timeouts and rate limits.
 
-The [guide](https://efg-technologies.github.io/senu/overview.html) explains
-each part: [operations](https://efg-technologies.github.io/senu/operations.html),
-[authentication](https://efg-technologies.github.io/senu/authentication.html),
-[MCP tools](https://efg-technologies.github.io/senu/mcp-tools.html),
-[deployment](https://efg-technologies.github.io/senu/deployment.html),
-[testing](https://efg-technologies.github.io/senu/testing.html) and
-[questions and comparisons](https://efg-technologies.github.io/senu/faq.html).
+The [guide](https://senu.efg-technologies.com/overview.html) explains
+each part: [operations](https://senu.efg-technologies.com/operations.html),
+[authentication](https://senu.efg-technologies.com/authentication.html),
+[MCP tools](https://senu.efg-technologies.com/mcp-tools.html),
+[deployment](https://senu.efg-technologies.com/deployment.html),
+[testing](https://senu.efg-technologies.com/testing.html) and
+[questions and comparisons](https://senu.efg-technologies.com/faq.html).
 AI assistants can read
-[llms.txt](https://efg-technologies.github.io/senu/llms.txt).
+[llms.txt](https://senu.efg-technologies.com/llms.txt).
 
 ## Status and limits
 
@@ -206,8 +206,8 @@ the language alone does not make a program secure or fast.
 ## New to Rust? Start with the course
 
 The beginner course is part of the site, online at
-https://efg-technologies.github.io/senu/start.html (English) and
-https://efg-technologies.github.io/senu/ja/start.html (Japanese). It has
+https://senu.efg-technologies.com/start.html (English) and
+https://senu.efg-technologies.com/ja/start.html (Japanese). It has
 you run the same site on your own computer. Install Rust and Git as its
 [installation chapter](content/en/02-install.md) describes, then run:
 
@@ -321,7 +321,7 @@ articles, the site and the course; it supersedes the mdBook tutorial of
 spec 0002.
 
 The public site is a static snapshot of the same pages.
-`python3 scripts/snapshot_site.py --base-url https://efg-technologies.github.io/senu/ target/site`
+`python3 scripts/snapshot_site.py --base-url https://senu.efg-technologies.com/ target/site`
 starts `senu site` with `SENU_SITE_URL`, so that every page names its
 canonical address, its translations and its structured data, and adds
 `sitemap.xml`, `robots.txt`, `llms.txt`, `llms-full.txt`, each article's
@@ -376,7 +376,7 @@ query string are never read. Responses carry `Cache-Control: no-store` and
 ## Adding an operation
 
 In your own crate, follow [`examples/inventory.rs`](examples/inventory.rs)
-and the [operations guide](https://efg-technologies.github.io/senu/operations.html).
+and the [operations guide](https://senu.efg-technologies.com/operations.html).
 In this repository the application is the demo in `src/demo/`, and Senu's
 adapters are in `src/http.rs` and `src/mcp.rs`.
 

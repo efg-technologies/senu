@@ -5,7 +5,7 @@
 **Rust の関数を一度宣言すれば、Web ページ・JSON API・MCP ツールとして提供できます。**
 
 [![CI](https://github.com/efg-technologies/senu/actions/workflows/ci.yml/badge.svg)](https://github.com/efg-technologies/senu/actions/workflows/ci.yml)
-[ガイドと講座](https://efg-technologies.github.io/senu/ja/) ·
+[ガイドと講座](https://senu.efg-technologies.com/ja/) ·
 [API リファレンス](https://docs.rs/senu) ·
 [変更履歴](CHANGELOG.md) ·
 [セキュリティ](SECURITY.md)
@@ -135,14 +135,14 @@ Senu の契約テストを走らせます。
 - **ふつうの `axum::Router`。** 好きな場所にバインドし、ログ、タイムアウト、レート制限の
   tower レイヤーを足せます。
 
-[ガイド](https://efg-technologies.github.io/senu/ja/overview.html)が各部分を説明します。
-[操作](https://efg-technologies.github.io/senu/ja/operations.html)、
-[認証](https://efg-technologies.github.io/senu/ja/authentication.html)、
-[MCP ツール](https://efg-technologies.github.io/senu/ja/mcp-tools.html)、
-[デプロイ](https://efg-technologies.github.io/senu/ja/deployment.html)、
-[テスト](https://efg-technologies.github.io/senu/ja/testing.html)、
-[質問と比較](https://efg-technologies.github.io/senu/ja/faq.html)があります。
-AI アシスタントは [llms.txt](https://efg-technologies.github.io/senu/llms.txt) (英語) を
+[ガイド](https://senu.efg-technologies.com/ja/overview.html)が各部分を説明します。
+[操作](https://senu.efg-technologies.com/ja/operations.html)、
+[認証](https://senu.efg-technologies.com/ja/authentication.html)、
+[MCP ツール](https://senu.efg-technologies.com/ja/mcp-tools.html)、
+[デプロイ](https://senu.efg-technologies.com/ja/deployment.html)、
+[テスト](https://senu.efg-technologies.com/ja/testing.html)、
+[質問と比較](https://senu.efg-technologies.com/ja/faq.html)があります。
+AI アシスタントは [llms.txt](https://senu.efg-technologies.com/llms.txt) (英語) を
 読めます。
 
 ## 状態と制限
@@ -193,8 +193,8 @@ Rust を土台にしたのは、メモリーと型の安全性、そして速さ
 ## Rust がはじめての方は講座から
 
 初心者向けの講座はサイトの一部で、
-https://efg-technologies.github.io/senu/ja/start.html (日本語) と
-https://efg-technologies.github.io/senu/start.html (英語) で読めます。講座では、
+https://senu.efg-technologies.com/ja/start.html (日本語) と
+https://senu.efg-technologies.com/start.html (英語) で読めます。講座では、
 同じサイトを自分のコンピューターで動かします。講座の
 [インストールの章](content/ja/02-install.md)のとおりに Rust と Git を入れてから、
 次を実行してください。
@@ -303,7 +303,7 @@ MCP のルートはありません。記事、サイト、講座は
 仕様 0002 の mdBook のチュートリアルを置き換えます。
 
 公開サイトは、同じページの静的なスナップショットです。
-`python3 scripts/snapshot_site.py --base-url https://efg-technologies.github.io/senu/ target/site`
+`python3 scripts/snapshot_site.py --base-url https://senu.efg-technologies.com/ target/site`
 は `SENU_SITE_URL` を付けて `senu site` を起動します。すると各ページが正規のアドレス、
 翻訳、構造化データを持ちます。さらに `sitemap.xml`、`robots.txt`、`llms.txt`、
 `llms-full.txt`、各記事の Markdown、`404.html` を書き出します。`pages` ワークフローが、
@@ -353,7 +353,7 @@ MCP のルートはありません。記事、サイト、講座は
 ## 処理を追加する
 
 自分のクレートでは、[`examples/inventory.rs`](examples/inventory.rs) と
-[操作のガイド](https://efg-technologies.github.io/senu/ja/operations.html)に従ってください。
+[操作のガイド](https://senu.efg-technologies.com/ja/operations.html)に従ってください。
 このリポジトリでは、アプリケーションは `src/demo/` のデモで、Senu のアダプターは
 `src/http.rs` と `src/mcp.rs` にあります。
 
