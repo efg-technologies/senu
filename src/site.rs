@@ -392,6 +392,8 @@ fn index_seo(base: &BaseUrl, labels: &'static Labels, homes: &[&'static str; 2])
         canonical,
         kind: "website",
         json_ld: TrustedHtml::json_ld(&data),
+        markdown: None,
+        llms: format!("{}llms.txt", base.as_str()),
     }
 }
 
@@ -441,9 +443,13 @@ fn article_seo(base: &BaseUrl, page: &Page<'_>) -> Seo {
     routes.extend(page.pair.map(|pair| (page.labels.other_lang, pair)));
     Seo {
         alternates: alternates(base, &routes),
+        markdown: canonical
+            .strip_suffix(".html")
+            .map(|page| format!("{page}.md")),
         canonical,
         kind: "article",
         json_ld: TrustedHtml::json_ld(&data),
+        llms: format!("{}llms.txt", base.as_str()),
     }
 }
 
@@ -988,6 +994,8 @@ mod tests {
                 "hreflang=\"x-default\"",
                 "og:",
                 "ld+json",
+                "text/markdown",
+                "llms.txt",
             ] {
                 assert!(!page.contains(absent), "{path} has {absent}");
             }
@@ -1018,6 +1026,12 @@ mod tests {
         assert_eq!(link(&index, "ja"), some("https://example.org/senu/ja/"));
         assert_eq!(link(&index, "x-default"), some("https://example.org/senu/"));
         assert!(index.contains("property=\"og:type\" content=\"website\""));
+        assert!(!index.contains("type=\"text/markdown\""));
+        let llms = format!(
+            "<li><a href=\"https://example.org/senu/llms.txt\">{}</a></li>",
+            ENGLISH.llms
+        );
+        assert!(index.contains(&llms), "{index}");
         let data = json_ld(&index);
         let software = of_type(&data, "SoftwareSourceCode").expect("the software");
         assert_eq!(software["codeRepository"], REPOSITORY);
@@ -1037,6 +1051,10 @@ mod tests {
             some("https://example.org/senu/overview.html")
         );
         assert!(japanese.contains("property=\"og:locale\" content=\"ja_JP\""));
+        assert!(japanese.contains(
+            "<link rel=\"alternate\" type=\"text/markdown\" \
+             href=\"https://example.org/senu/ja/overview.md\">"
+        ));
         let data = json_ld(&japanese);
         let article = of_type(&data, "TechArticle").expect("an article");
         assert_eq!(article["headline"], "概要");

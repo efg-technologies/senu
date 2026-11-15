@@ -9,6 +9,9 @@
 <%! for (text, href) in frame.labels.links %>
 <li><a href="<%= href %>"><%= text %></a></li>
 <%! endfor %>
+<%! if let Some(seo) = frame.seo %>
+<li><a href="<%= seo.llms %>"><%= frame.labels.llms %></a></li>
+<%! endif %>
 </ul>
 <%! for group in frame.nav %>
 <h2><%= group.labels.heading %></h2>

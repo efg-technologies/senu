@@ -56,6 +56,8 @@ pub struct Labels {
     pub install: &'static str,
     /// The links under the install command: (text, address).
     pub links: [(&'static str, &'static str); 3],
+    /// The text of the index's link to `llms.txt`, shown on the public site.
+    pub llms: &'static str,
     /// The groups of articles, in the order of [`Section`].
     pub sections: [SectionLabels; 4],
     pub footer: &'static str,
@@ -139,6 +141,7 @@ pub static ENGLISH: Labels = Labels {
         ("API reference on docs.rs", DOCS_RS),
         ("Crate on crates.io", CRATES_IO),
     ],
+    llms: "llms.txt: this site as plain text for AI assistants",
     sections: [
         SectionLabels {
             heading: "Library guide",
@@ -190,6 +193,7 @@ pub static JAPANESE: Labels = Labels {
         ("docs.rs の API リファレンス", DOCS_RS),
         ("crates.io のクレート", CRATES_IO),
     ],
+    llms: "llms.txt: AI アシスタント向けに、このサイトをプレーンテキストにしたもの (英語)",
     sections: [
         SectionLabels {
             heading: "ライブラリガイド",
@@ -242,6 +246,10 @@ pub struct Seo {
     pub kind: &'static str,
     /// The JSON-LD script element.
     pub json_ld: TrustedHtml,
+    /// The article's Markdown source in the snapshot; `None` on an index.
+    pub markdown: Option<String>,
+    /// The snapshot's `llms.txt`.
+    pub llms: String,
 }
 
 /// What the index and article templates share.

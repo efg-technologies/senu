@@ -18,6 +18,9 @@
 <meta property="og:description" content="<%= frame.description %>">
 <meta property="og:url" content="<%= seo.canonical %>">
 <meta name="twitter:card" content="summary">
+<%! if let Some(markdown) = seo.markdown %>
+<link rel="alternate" type="text/markdown" href="<%= markdown %>">
+<%! endif %>
 <%= seo.json_ld %>
 <%! endif %>
 <link rel="stylesheet" href="/_senu/ui.css">
