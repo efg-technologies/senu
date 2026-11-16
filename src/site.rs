@@ -395,6 +395,9 @@ fn index_seo(base: &BaseUrl, labels: &'static Labels, homes: &[&'static str; 2])
         markdown: None,
         llms: format!("{}llms.txt", base.as_str()),
         icon: format!("{}icon.svg", base.as_str()),
+        image: format!("{}og.png", base.as_str()),
+        manifest: format!("{}manifest.webmanifest", base.as_str()),
+        touch_icon: format!("{}apple-touch-icon.png", base.as_str()),
     }
 }
 
@@ -452,6 +455,9 @@ fn article_seo(base: &BaseUrl, page: &Page<'_>) -> Seo {
         json_ld: TrustedHtml::json_ld(&data),
         llms: format!("{}llms.txt", base.as_str()),
         icon: format!("{}icon.svg", base.as_str()),
+        image: format!("{}og.png", base.as_str()),
+        manifest: format!("{}manifest.webmanifest", base.as_str()),
+        touch_icon: format!("{}apple-touch-icon.png", base.as_str()),
     }
 }
 
@@ -999,6 +1005,9 @@ mod tests {
                 "text/markdown",
                 "llms.txt",
                 "rel=\"icon\"",
+                "og.png",
+                "rel=\"manifest\"",
+                "apple-touch-icon",
             ] {
                 assert!(!page.contains(absent), "{path} has {absent}");
             }
@@ -1023,6 +1032,16 @@ mod tests {
             let icon = "<link rel=\"icon\" type=\"image/svg+xml\" \
                         href=\"https://example.org/senu/icon.svg\">";
             assert_eq!(count(&page, icon), 1, "{path}");
+            for needle in [
+                "<meta property=\"og:image\" content=\"https://example.org/senu/og.png\">",
+                "<meta property=\"og:image:width\" content=\"1200\">",
+                "<meta name=\"twitter:card\" content=\"summary_large_image\">",
+                "<link rel=\"manifest\" href=\"https://example.org/senu/manifest.webmanifest\">",
+                "<link rel=\"apple-touch-icon\" href=\"https://example.org/senu/apple-touch-icon.png\">",
+                "<meta name=\"theme-color\" content=\"#111827\">",
+            ] {
+                assert_eq!(count(&page, needle), 1, "{path}: {needle}");
+            }
             json_ld(&page);
         }
 
@@ -1115,6 +1134,35 @@ mod tests {
         assert_eq!(count(&faq, "</script>"), 1, "{faq}");
         assert_eq!(count(&faq, "<script"), 1, "{faq}");
         assert!(!faq.contains("<b>safe</b>"), "{faq}");
+    }
+
+    #[test]
+    fn the_index_is_the_landing_page_in_both_languages() {
+        let site = Site::load(&SECTIONED).unwrap();
+        for labels in [&ENGLISH, &JAPANESE] {
+            let index = page(&site, labels.home);
+            // The course greps for the heading on one line, without attributes.
+            assert_eq!(
+                count(&index, &format!("<h1>{}</h1>", labels.index_title)),
+                1
+            );
+            let start = format!("<a href=\"{}\"", labels.start.1);
+            assert!(index.contains(&start), "{start}");
+            assert!(
+                site.page(labels.start.1).is_some(),
+                "{} exists",
+                labels.start.1
+            );
+            for (name, sentence) in labels.doors {
+                assert!(index.contains(name) && index.contains(sentence), "{name}");
+            }
+            for (claim, _) in labels.checks {
+                assert!(index.contains(claim), "{claim}");
+            }
+            for heading in [labels.doors_heading, labels.checks_heading, labels.install] {
+                assert_eq!(count(&index, &format!(">{heading}</h2>")), 1, "{heading}");
+            }
+        }
     }
 
     #[test]

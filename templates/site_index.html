@@ -1,8 +1,24 @@
-<%# The index of one language: what Senu is, how to add it, then every group of articles. Askama HTML-encodes every expression in this file. %>
+<%# The index of one language, the landing page: what Senu is, the three transports, what it checks, how to add it, then every group of articles. Askama HTML-encodes every expression in this file. The `<h1>` stays on one line without attributes, because the course greps for it. %>
 <%! extends "site_base.html" %>
 <%! block main %>
 <h1><%= frame.title %></h1>
-<p><%= frame.labels.intro %></p>
+<p class="text-lg"><%= frame.labels.intro %></p>
+<p class="not-prose my-6 flex flex-wrap gap-3">
+<a href="<%= frame.labels.start.1 %>" class="rounded-md bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800"><%= frame.labels.start.0 %></a>
+<a href="https://github.com/efg-technologies/senu" class="rounded-md border border-gray-500 bg-white px-4 py-2 font-semibold text-gray-900 hover:bg-gray-100"><%= frame.labels.source %></a>
+</p>
+<h2><%= frame.labels.doors_heading %></h2>
+<ul class="not-prose my-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+<%! for (name, sentence) in frame.labels.doors %>
+<li class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3"><strong class="block"><%= name %></strong><span class="text-sm text-gray-600"><%= sentence %></span></li>
+<%! endfor %>
+</ul>
+<h2><%= frame.labels.checks_heading %></h2>
+<ul>
+<%! for (claim, sentence) in frame.labels.checks %>
+<li><strong><%= claim %></strong> <%= sentence %></li>
+<%! endfor %>
+</ul>
 <h2><%= frame.labels.install %></h2>
 <pre><code>cargo add senu --no-default-features</code></pre>
 <p><%= frame.labels.install_git %></p>

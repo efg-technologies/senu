@@ -104,6 +104,9 @@ def public_page(lang, address, title, description, alternates):
         f'<meta name="description" content="{description}">\n'
         f'<link rel="canonical" href="{address}">\n{links}'
         f'<link rel="icon" type="image/svg+xml" href="{BASE}icon.svg">\n'
+        f'<meta property="og:image" content="{BASE}og.png">\n'
+        f'<link rel="manifest" href="{BASE}manifest.webmanifest">\n'
+        f'<link rel="apple-touch-icon" href="{BASE}apple-touch-icon.png">\n'
         f'<script type="application/ld+json">{data}</script>\n'
         '<link rel="stylesheet" href="/_senu/ui.css">\n</head>\n<body><a href="/">Home</a></body>\n</html>\n'
     )
@@ -168,6 +171,13 @@ class Public(unittest.TestCase):
         self.assertIn('<meta name="robots" content="noindex">', not_found)
         self.assertIn(f'href="{BASE}"', not_found)
         self.assertTrue((out / ".nojekyll").is_file())
+        manifest = json.loads((out / "manifest.webmanifest").read_text(encoding="utf-8"))
+        self.assertEqual((manifest["start_url"], manifest["scope"], manifest["display"]),
+                         (BASE, BASE, "standalone"))
+        self.assertEqual(manifest["description"], "The start page.")
+        self.assertEqual([icon["src"] for icon in manifest["icons"]],
+                         [BASE + "icon-192.png", BASE + "icon-512.png", BASE + "icon.svg"])
+        self.assertEqual((out / "og.png").read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
         icon = (out / "icon.svg").read_text(encoding="utf-8")
         xml.etree.ElementTree.fromstring(icon)
         self.assertIn(f'href="{BASE}icon.svg"', not_found)
@@ -186,6 +196,8 @@ class Public(unittest.TestCase):
             "does not parse": lambda page: page.replace('{"@context"', '{@context'),
             "schema.org graph": lambda page: page.replace('"@graph"', '"graph"'),
             "does not name the icon": lambda page: page.replace("icon.svg", "favicon.ico"),
+            "lacks <meta property": lambda page: page.replace("og.png", "card.png"),
+            "lacks <link rel=\"manifest\"": lambda page: page.replace("manifest.webmanifest", "app.json"),
         }
         for message, change in broken.items():
             pages = public_pages()
@@ -210,6 +222,8 @@ class Public(unittest.TestCase):
         cases = (
             ("sitemap.xml", f"<loc>{BASE}start.html</loc>", f"<loc>{BASE}gone.html</loc>", "sitemap"),
             ("robots.txt", "Sitemap:", "Site-map:", "robots.txt"),
+            ("manifest.webmanifest", '"standalone"', '"browser"', "manifest"),
+            ("manifest.webmanifest", "icon-512.png", "icon-256.png", "manifest"),
             ("llms.txt", f"{BASE}start.md", f"{BASE}gone.md", "llms.txt links"),
             ("llms.txt", f"- [Start]({BASE}start.md): The course begins.\n", "", "every English"),
         )
