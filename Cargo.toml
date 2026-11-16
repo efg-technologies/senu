@@ -1,6 +1,6 @@
 [package]
 name = "senu"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.99"
 description = "Declare a Rust function once and serve it as a web page, a JSON API and an MCP tool, with one permission check and one contract test suite"
@@ -32,9 +32,24 @@ include = [
 [features]
 default = ["demo"]
 # The catalogue demo, the `senu` binary and the article site with the course.
-demo = []
+demo = ["stdio", "axum/http1", "axum/tokio", "tokio/net", "tokio/rt"]
+# `McpServer::serve_stdio`, and with it the dependencies that need sockets.
+# Without `demo` and `stdio` the core uses neither `tokio/net` nor `axum/tokio`.
+stdio = ["rmcp/transport-io"]
 # `senu::contract`: Senu's contract tests as a kit for an application's own tests.
 contract = ["dep:tower"]
+
+[[example]]
+name = "hello"
+required-features = ["stdio"]
+
+[[example]]
+name = "inventory"
+required-features = ["stdio"]
+
+[[example]]
+name = "items"
+required-features = ["stdio"]
 
 [[bin]]
 name = "senu"
@@ -47,20 +62,21 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 askama = { version = "0.16.1", default-features = false, features = ["config", "derive", "std"] }
-axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+axum = { version = "0.8.9", default-features = false, features = ["json"] }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 form_urlencoded = "1.2.2"
 pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }
-rmcp = { version = "3.8.0", default-features = false, features = ["server", "transport-io"] }
+rmcp = { version = "3.8.0", default-features = false, features = ["server"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 subtle = { version = "2.6.1", default-features = false }
-tokio = { version = "1.54.1", default-features = false, features = ["net", "rt"] }
+tokio = { version = "1.54.1", default-features = false }
 tower = { version = "0.5.3", default-features = false, features = ["util"], optional = true }
 
 [dev-dependencies]
 # Senu's own tests run the contract kit. A path-only entry is left out of the
 # published manifest.
 senu = { path = ".", features = ["contract"] }
-tokio = { version = "1.54.1", default-features = false, features = ["macros", "rt"] }
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+tokio = { version = "1.54.1", default-features = false, features = ["macros", "net", "rt"] }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }

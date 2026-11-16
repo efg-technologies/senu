@@ -292,6 +292,8 @@ impl<S> McpServer<S> {
     }
 }
 
+#[cfg(feature = "stdio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "stdio")))]
 impl<S: Send + Sync + 'static> McpServer<S> {
     /// Serves the tools over this process's stdin and stdout until the
     /// client closes stdin, which is `Ok(())`, also before `initialize`.

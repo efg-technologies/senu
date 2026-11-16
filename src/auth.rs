@@ -678,4 +678,141 @@ mod tests {
         assert_eq!(auth.challenge().unwrap(), "Bearer realm=\"senu\"");
         assert!(!format!("{auth:?}").contains("token-a"));
     }
+
+    // Spec 0007, §3: cookies and the cross-site check.
+
+    fn with(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.append(*name, HeaderValue::from_str(value).expect("a header value"));
+        }
+        headers
+    }
+
+    #[test]
+    fn a_cookie_counts_only_when_it_appears_exactly_once() {
+        let one = with(&[("cookie", "theme=dark; sid=abc123; lang=ja")]);
+        assert_eq!(cookie(&one, "sid"), Some("abc123"));
+        assert_eq!(cookie(&one, "theme"), Some("dark"));
+        assert_eq!(cookie(&one, "lang"), Some("ja"));
+        assert_eq!(cookie(&one, "si"), None);
+        assert_eq!(cookie(&one, "sid2"), None);
+        assert_eq!(cookie(&one, ""), None);
+        assert_eq!(cookie(&with(&[]), "sid"), None);
+        // A value may hold '=' and is not decoded.
+        let padded = with(&[("cookie", "sid=a=b%3D; x=1")]);
+        assert_eq!(cookie(&padded, "sid"), Some("a=b%3D"));
+        assert_eq!(cookie(&with(&[("cookie", "sid=")]), "sid"), Some(""));
+        // Twice, in one header or in two, is treated as absent.
+        assert_eq!(cookie(&with(&[("cookie", "sid=a; sid=b")]), "sid"), None);
+        let two = with(&[("cookie", "sid=a"), ("cookie", "sid=a")]);
+        assert_eq!(cookie(&two, "sid"), None);
+        let split = with(&[("cookie", "x=1"), ("cookie", "sid=a")]);
+        assert_eq!(cookie(&split, "sid"), Some("a"));
+        // Names are case-sensitive, and a prefix is another cookie.
+        assert_eq!(cookie(&with(&[("cookie", "SID=a; xsid=b")]), "sid"), None);
+    }
+
+    #[test]
+    fn the_cross_site_check_follows_its_four_rules() {
+        let trusted = ["https://app.example.com"];
+        let cases: [(&[(&'static str, &str)], bool); 17] = [
+            // 4. No browser header at all: a program, not a page.
+            (&[], true),
+            (&[("host", "api.example.com")], true),
+            // 2. Sec-Fetch-Site decides when it is there.
+            (&[("sec-fetch-site", "same-origin")], true),
+            (&[("sec-fetch-site", "none")], true),
+            (&[("sec-fetch-site", "same-site")], false),
+            (&[("sec-fetch-site", "cross-site")], false),
+            (&[("sec-fetch-site", "Same-Origin")], false),
+            (
+                &[
+                    ("sec-fetch-site", "cross-site"),
+                    ("origin", "https://api.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+            // 3. Otherwise Origin against Host.
+            (
+                &[
+                    ("origin", "https://api.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://API.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://api.example.com:8443"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+            (
+                &[
+                    ("origin", "https://attacker.example"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+            (&[("origin", "null"), ("host", "api.example.com")], false),
+            (&[("origin", "https://api.example.com")], false),
+            // 1. A trusted origin passes, whatever else is sent.
+            (
+                &[
+                    ("origin", "https://app.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://app.example.com"),
+                    ("sec-fetch-site", "cross-site"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://app.example.com.attacker.example"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+        ];
+        for (pairs, expected) in cases {
+            assert_eq!(same_origin(&with(pairs), &trusted), expected, "{pairs:?}");
+        }
+        // Two values of one header are refused rather than guessed at.
+        let twice = with(&[
+            ("origin", "https://app.example.com"),
+            ("origin", "https://attacker.example"),
+        ]);
+        assert!(!same_origin(&twice, &trusted));
+        let twice = with(&[
+            ("sec-fetch-site", "same-origin"),
+            ("sec-fetch-site", "cross-site"),
+        ]);
+        assert!(!same_origin(&twice, &[]));
+        for (origin, valid) in [
+            ("https://app.example.com", true),
+            ("http://localhost:3000", true),
+            ("https://[::1]:8443", true),
+            ("https://app.example.com/", false),
+            ("app.example.com", false),
+            ("https://", false),
+            ("ftp://app.example.com", false),
+            ("https://a b", false),
+        ] {
+            assert_eq!(is_origin(origin), valid, "{origin}");
+        }
+    }
 }

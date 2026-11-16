@@ -519,7 +519,94 @@ pub async fn check<S: Send + Sync + 'static>(subject: Subject<S>) {
         assert!(known, "the sample {name} names no listed operation");
     }
 
-    // CT-8 to CT-11: every write route.
+    // CT-5 and CT-7: empty arguments and the application's sample give the
+    // same outcome on every transport that lists the read, and pages keep
+    // their headers.
+    for &(name, sample) in subject.samples {
+        let path = |kind| {
+            routes
+                .iter()
+                .find(|route| route.kind == kind && route.operation == Some(name))
+                .map(|route| route.path)
+        };
+        let (api_path, html_path) = (path(Kind::Api), path(Kind::Html));
+        let tool = listed.iter().find(|tool| tool.name() == name);
+        if writes.iter().any(|route| route.operation == Some(name))
+            || tool.is_some_and(|tool| tool.effect().is_write())
+        {
+            continue;
+        }
+        for query in ["", sample] {
+            let context = format!("CT-5 {name}?{query}");
+            // The outcome as (succeeded, JSON), from the API and from MCP.
+            let mut outcome: Option<(bool, Value)> = None;
+            if let Some(api_path) = api_path {
+                let target = format!("{api_path}?{query}");
+                let api = send(
+                    &app,
+                    request("GET", &target, &subject.credential(Kind::Api)),
+                )
+                .await;
+                let body: Value = serde_json::from_str(&api.body)
+                    .unwrap_or_else(|_| panic!("{context}: the API must answer JSON"));
+                outcome = Some((api.status == StatusCode::OK, body));
+            }
+            if tool.is_some() {
+                let args = Value::Object(query_arguments(Some(query)));
+                let result = call(&server, name, args).await;
+                let ok = result.is_error != Some(true);
+                let body = result.structured_content.clone().unwrap_or(Value::Null);
+                if let Some((api_ok, api_body)) = &outcome {
+                    assert_eq!(ok, *api_ok, "{context}: MCP and the API disagree");
+                    assert_eq!(&body, api_body, "{context}: MCP and the API disagree");
+                }
+                outcome = Some((ok, body));
+            }
+            if let Some(html_path) = html_path {
+                let target = format!("{html_path}?{query}");
+                let page = send(
+                    &app,
+                    request("GET", &target, &subject.credential(Kind::Html)),
+                )
+                .await;
+                let ok = page.status == StatusCode::OK;
+                if let Some((other_ok, _)) = &outcome {
+                    assert_eq!(ok, *other_ok, "{context}: the page disagrees");
+                } else {
+                    outcome = Some((ok, Value::Null));
+                }
+                if ok {
+                    assert!(
+                        page.header(header::CONTENT_TYPE).starts_with("text/html"),
+                        "CT-7 {target}"
+                    );
+                    assert_eq!(
+                        page.header(header::CONTENT_SECURITY_POLICY),
+                        csp,
+                        "CT-7 {target}"
+                    );
+                    assert_eq!(
+                        page.header(header::CACHE_CONTROL),
+                        "no-store",
+                        "CT-7 {target}"
+                    );
+                    assert_eq!(
+                        page.header(header::X_CONTENT_TYPE_OPTIONS),
+                        "nosniff",
+                        "CT-7 {target}"
+                    );
+                }
+            }
+            if query == sample {
+                let ok = outcome.is_some_and(|(ok, _)| ok);
+                assert!(ok, "{context}: the sample must succeed");
+            }
+        }
+    }
+
+    // CT-8 to CT-11: every write route, after the reads were compared,
+    // because the samples below change the state. They run in the order of
+    // the table, on one state.
     for route in &writes {
         let (path, kind) = (route.path, route.kind);
         let name = route.operation.unwrap_or("");
@@ -663,91 +750,6 @@ pub async fn check<S: Send + Sync + 'static>(subject: Subject<S>) {
             "no-store",
             "CT-12 {path}"
         );
-    }
-
-    // CT-5 and CT-7: empty arguments and the application's sample give the
-    // same outcome on every transport that lists the read, and pages keep
-    // their headers.
-    for &(name, sample) in subject.samples {
-        let path = |kind| {
-            routes
-                .iter()
-                .find(|route| route.kind == kind && route.operation == Some(name))
-                .map(|route| route.path)
-        };
-        let (api_path, html_path) = (path(Kind::Api), path(Kind::Html));
-        let tool = listed.iter().find(|tool| tool.name() == name);
-        if writes.iter().any(|route| route.operation == Some(name))
-            || tool.is_some_and(|tool| tool.effect().is_write())
-        {
-            continue;
-        }
-        for query in ["", sample] {
-            let context = format!("CT-5 {name}?{query}");
-            // The outcome as (succeeded, JSON), from the API and from MCP.
-            let mut outcome: Option<(bool, Value)> = None;
-            if let Some(api_path) = api_path {
-                let target = format!("{api_path}?{query}");
-                let api = send(
-                    &app,
-                    request("GET", &target, &subject.credential(Kind::Api)),
-                )
-                .await;
-                let body: Value = serde_json::from_str(&api.body)
-                    .unwrap_or_else(|_| panic!("{context}: the API must answer JSON"));
-                outcome = Some((api.status == StatusCode::OK, body));
-            }
-            if tool.is_some() {
-                let args = Value::Object(query_arguments(Some(query)));
-                let result = call(&server, name, args).await;
-                let ok = result.is_error != Some(true);
-                let body = result.structured_content.clone().unwrap_or(Value::Null);
-                if let Some((api_ok, api_body)) = &outcome {
-                    assert_eq!(ok, *api_ok, "{context}: MCP and the API disagree");
-                    assert_eq!(&body, api_body, "{context}: MCP and the API disagree");
-                }
-                outcome = Some((ok, body));
-            }
-            if let Some(html_path) = html_path {
-                let target = format!("{html_path}?{query}");
-                let page = send(
-                    &app,
-                    request("GET", &target, &subject.credential(Kind::Html)),
-                )
-                .await;
-                let ok = page.status == StatusCode::OK;
-                if let Some((other_ok, _)) = &outcome {
-                    assert_eq!(ok, *other_ok, "{context}: the page disagrees");
-                } else {
-                    outcome = Some((ok, Value::Null));
-                }
-                if ok {
-                    assert!(
-                        page.header(header::CONTENT_TYPE).starts_with("text/html"),
-                        "CT-7 {target}"
-                    );
-                    assert_eq!(
-                        page.header(header::CONTENT_SECURITY_POLICY),
-                        csp,
-                        "CT-7 {target}"
-                    );
-                    assert_eq!(
-                        page.header(header::CACHE_CONTROL),
-                        "no-store",
-                        "CT-7 {target}"
-                    );
-                    assert_eq!(
-                        page.header(header::X_CONTENT_TYPE_OPTIONS),
-                        "nosniff",
-                        "CT-7 {target}"
-                    );
-                }
-            }
-            if query == sample {
-                let ok = outcome.is_some_and(|(ok, _)| ok);
-                assert!(ok, "{context}: the sample must succeed");
-            }
-        }
     }
 
     // CT-6 and CT-12: only the listed tools, each annotated by its effect,
