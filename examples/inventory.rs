@@ -25,7 +25,7 @@ use senu::auth::{AuthFuture, Authenticate, Basic, Secret};
 use senu::http::{AppState, Endpoints};
 use senu::mcp::{self, McpServer, McpTool};
 use senu::operation::{
-    Args, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
+    Args, Effect, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -136,6 +136,7 @@ pub const GET_STOCK: Operation<Inventory, Level> = Operation {
         "sku",
         "The SKU: 1 to 16 characters of A-Z, 0-9 and '-'.",
     )],
+    effect: Effect::Read,
     run: Run::Async(|inventory, caller, args| Box::pin(get_stock(inventory, caller, args))),
 };
 
@@ -179,6 +180,7 @@ pub const LIST_LOW_STOCK: Operation<Inventory, LowStock> = Operation {
         "below",
         "The threshold: a whole number of at most 6 digits. Without it, 5.",
     )],
+    effect: Effect::Read,
     run: Run::Async(|inventory, caller, args| Box::pin(list_low_stock(inventory, caller, args))),
 };
 
@@ -266,8 +268,8 @@ impl Authenticate for ApiKeys {
         })
     }
 
-    fn challenge(&self) -> HeaderValue {
-        HeaderValue::from_static("ApiKey realm=\"inventory\"")
+    fn challenge(&self) -> Option<HeaderValue> {
+        Some(HeaderValue::from_static("ApiKey realm=\"inventory\""))
     }
 }
 

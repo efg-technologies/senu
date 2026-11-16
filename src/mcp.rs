@@ -29,7 +29,7 @@ use serde_json::{Map, Value, json};
 use crate::catalogue::Catalogue;
 #[cfg(feature = "demo")]
 use crate::demo::{get_project, list_projects};
-use crate::operation::{Args, InvalidDeclaration, OpError, Operation, Param, Principal};
+use crate::operation::{Args, Effect, InvalidDeclaration, OpError, Operation, Param, Principal};
 
 /// The name of the `list_projects` tool.
 #[cfg(feature = "demo")]
@@ -59,6 +59,8 @@ type Call<S> = Box<
 /// One listed tool: its schema and its operation.
 pub struct McpTool<S> {
     name: &'static str,
+    effect: Effect,
+    params: &'static [Param],
     schema: Tool,
     invalid: Option<InvalidDeclaration>,
     call: Call<S>,
@@ -69,9 +71,22 @@ impl<S> McpTool<S> {
     pub fn name(&self) -> &'static str {
         self.name
     }
+
+    /// The operation's effect, which decides the tool's annotations.
+    pub fn effect(&self) -> Effect {
+        self.effect
+    }
+
+    /// The operation's parameters, which the tool's schema describes.
+    pub fn params(&self) -> &'static [Param] {
+        self.params
+    }
 }
 
-/// Lists `operation` as a read-only tool of the same name.
+/// Lists `operation` as a tool of the same name. A read is annotated
+/// `readOnlyHint: true`. A write is annotated `readOnlyHint: false` with
+/// its declared `destructiveHint` and `idempotentHint`, so a client can ask
+/// its user before it calls one.
 pub fn tool<S, T>(operation: &'static Operation<S, T>) -> McpTool<S>
 where
     S: Sync + 'static,
@@ -79,12 +94,23 @@ where
 {
     McpTool {
         name: operation.name,
+        effect: operation.effect,
+        params: operation.params,
         schema: Tool::new(
             operation.name,
             operation.description,
             Arc::new(input_schema(operation.params)),
         )
-        .with_annotations(ToolAnnotations::new().read_only(true)),
+        .with_annotations(match operation.effect {
+            Effect::Read => ToolAnnotations::new().read_only(true),
+            Effect::Write {
+                destructive,
+                idempotent,
+            } => ToolAnnotations::new()
+                .read_only(false)
+                .destructive(destructive)
+                .idempotent(idempotent),
+        }),
         invalid: operation.check().err(),
         call: Box::new(move |state, principal, args| {
             Box::pin(async move {
@@ -97,13 +123,16 @@ where
     }
 }
 
-/// Every parameter is a described string; `required` appears only when some
-/// are required, and no other property is allowed.
+/// Every parameter is a described scalar of its kind; `required` appears
+/// only when some are required, and no other property is allowed.
 fn input_schema(params: &[Param]) -> Map<String, Value> {
     let properties: Map<String, Value> = params
         .iter()
         .map(|param| {
-            let property = json!({ "type": "string", "description": param.description });
+            let property = json!({
+                "type": param.kind.json_type(),
+                "description": param.description,
+            });
             (param.name.to_owned(), property)
         })
         .collect();

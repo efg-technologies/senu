@@ -7,13 +7,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::{HeaderMap, HeaderValue, Request, StatusCode, header};
+use axum::http::{HeaderMap, Request, StatusCode, header};
 use rmcp::model::CallToolRequestParams;
 use senu::auth::{AuthFuture, Authenticate, Bearer, Secret};
 use senu::http::{AppState, DEFAULT_HTML_CSP, Endpoints, Kind, RouteError};
 use senu::mcp::{self, McpServer};
 use senu::operation::{
-    Args, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
+    Args, Effect, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -45,6 +45,7 @@ const WHOAMI: Operation<Notes, Value> = Operation {
     description: "The caller as the server sees it.",
     permission: READ,
     params: &[],
+    effect: Effect::Read,
     run: Run::Async(|notes, caller, args| Box::pin(whoami(notes, caller, args))),
 };
 
@@ -58,6 +59,7 @@ const BROKEN: Operation<Notes, Value> = Operation {
     description: "Always fails, as a backend that is down would.",
     permission: READ,
     params: &[Param::optional("q", "Ignored.")],
+    effect: Effect::Read,
     run: Run::Sync(broken),
 };
 
@@ -89,10 +91,6 @@ impl Authenticate for Sessions {
                 vec![READ],
             ))
         })
-    }
-
-    fn challenge(&self) -> HeaderValue {
-        HeaderValue::from_static("Cookie realm=\"notes\"")
     }
 }
 
@@ -210,10 +208,8 @@ async fn an_asynchronous_authenticator_supplies_a_run_time_principal() {
         // The cookie in the query string is never read.
         let reply = send(&app, "/api/whoami?session=ann", &headers).await;
         assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            reply.headers[header::WWW_AUTHENTICATE],
-            "Cookie realm=\"notes\""
-        );
+        // A session authenticator has no scheme to announce.
+        assert!(reply.headers.get(header::WWW_AUTHENTICATE).is_none());
         assert_eq!(reply.body, r#"{"error":"unauthorized"}"#);
     }
 }

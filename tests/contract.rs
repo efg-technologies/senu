@@ -26,7 +26,9 @@ use senu::http::{
     AppState, Declared, Endpoints, Kind, MAX_TARGET_BYTES, RouteError, query_arguments,
 };
 use senu::mcp::{self, McpServer, McpTool, ToolError};
-use senu::operation::{Args, OpError, Operation, Param, Permission, Principal, Run, decode};
+use senu::operation::{
+    Args, Effect, OpError, Operation, Param, ParamKind, Permission, Principal, Run, decode,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use support::*;
@@ -65,7 +67,9 @@ const GET_STOCK: Operation<Stock, Level> = Operation {
         name: "sku",
         description: "The SKU: 1 to 16 characters of A-Z, 0-9 and '-'.",
         required: true,
+        kind: ParamKind::String,
     }],
+    effect: Effect::Read,
     run: Run::Async(|stock, principal, args| Box::pin(get_stock(stock, principal, args))),
 };
 
@@ -75,6 +79,7 @@ const STOCK_REPORT: Operation<Stock, Level> = Operation {
     description: "Not exposed.",
     permission: VIEW_STOCK,
     params: &[],
+    effect: Effect::Read,
     run: Run::Sync(unlisted),
 };
 
@@ -137,6 +142,7 @@ fn demo_subject() -> Subject<Catalogue> {
             ("list_projects", "q=launch"),
             ("get_project", "id=acme-002"),
         ],
+        auth: None,
     }
 }
 
@@ -147,6 +153,7 @@ fn stock_subject() -> Subject<Stock> {
         tools: stock_tools,
         principal: CLERK,
         samples: &[("get_stock", "sku=SKU-1")],
+        auth: None,
     }
 }
 
@@ -370,13 +377,16 @@ const ECHO: Operation<(), Args> = Operation {
             name: "a",
             description: "Required.",
             required: true,
+            kind: ParamKind::String,
         },
         Param {
             name: "b",
             description: "Optional.",
             required: false,
+            kind: ParamKind::String,
         },
     ],
+    effect: Effect::Read,
     run: Run::Sync(echo),
 };
 
@@ -508,7 +518,9 @@ async fn tool_schemas_are_built_from_the_declared_parameters_and_agree_with_the_
             name: "b",
             description: "Optional.",
             required: false,
+            kind: ParamKind::String,
         }],
+        effect: Effect::Read,
         ..ECHO
     };
     let server = McpServer::with_tools((), ECHO_USER, vec![mcp::tool(&NO_REQUIRED)]).unwrap();
@@ -620,6 +632,7 @@ fn operation_metadata_is_checked_before_anything_is_exposed() {
         name,
         description,
         required: true,
+        kind: ParamKind::String,
     };
     let duplicate = vec![param("sku", "One."), param("sku", "Two.")].leak();
     let variants: Vec<Operation<Stock, Level>> = vec![
@@ -773,6 +786,7 @@ async fn custom_routes_get_the_layers_but_no_authentication() {
             kind: Kind::Custom,
             operation: None,
             params: &[],
+            effect: None,
         })
     );
     let state = AppState::with_principals(stock(), &config(), CLERK, CLERK);

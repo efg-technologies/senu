@@ -14,7 +14,7 @@
 //! use senu::http::{AppState, Endpoints};
 //! use senu::mcp::{self, McpServer};
 //! use senu::operation::{
-//!     Args, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
+//!     Args, Effect, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
 //! };
 //!
 //! // Your state, your permission and your function.
@@ -46,6 +46,7 @@
 //!     description: "Units in stock for one SKU.",
 //!     permission: VIEW_STOCK,
 //!     params: &[Param::required("sku", "The SKU, such as SKU-1.")],
+//!     effect: Effect::Read,
 //!     run: Run::Sync(get_stock),
 //! };
 //!
