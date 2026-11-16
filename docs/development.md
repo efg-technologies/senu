@@ -1728,3 +1728,17 @@ was executed on a WebAssembly runtime or on Cloudflare Workers.
 - No release: the version in `Cargo.toml` is 0.3.0, without a tag and
   without publication. The branch is not merged, because merging deploys a
   site that would describe a version that is not on crates.io.
+
+### The landing page, the link preview and the home screen (2026-11-16)
+
+The index became a landing page, and with a base URL every page names a
+1200 by 630 card, a web app manifest and an Apple touch icon (spec 0006, §6).
+Checked on the branch: `cargo test --locked` passes (154 unit tests, so the
+course's filtered counts moved to 152 and 153);
+`python3 scripts/test_snapshot_site.py`, 9 tests, including a page that
+does not name the card or the manifest and a manifest without `standalone`
+or the 512 pixel icon; the public snapshot, 38 pages; the course in both
+languages. The index was opened from the snapshot in headless Chromium at
+390 and at 1280 pixels: the cards stack on the phone and sit in three
+columns on the desktop. There is no service worker, so nothing was tested
+offline.
