@@ -135,6 +135,15 @@ pub enum OpError {
     /// failed (500). It carries no detail; log the cause before returning
     /// it.
     Internal,
+    /// The request is well-formed but cannot be done now, such as deleting
+    /// something that is in use (409). Like `Invalid`, it has a stable
+    /// `code` and a `phrase`, both fixed strings.
+    Conflict {
+        /// The machine-readable code, such as `item_deployed`.
+        code: &'static str,
+        /// The plain-text body of the HTML surface.
+        phrase: &'static str,
+    },
     /// The operation's own 400 error: a stable `code` for JSON and MCP and
     /// a `phrase` for HTML. Both are fixed strings, so neither can repeat
     /// the input.
@@ -154,7 +163,7 @@ impl OpError {
             Self::InvalidRequest => "invalid_request",
             Self::NotFound => "not_found",
             Self::Internal => "internal",
-            Self::Invalid { code, .. } => code,
+            Self::Invalid { code, .. } | Self::Conflict { code, .. } => code,
         }
     }
 }
@@ -170,35 +179,136 @@ impl std::error::Error for OpError {}
 /// An operation's arguments: the decoded query string or MCP `arguments`.
 pub type Args = Map<String, Value>;
 
-/// One declared parameter. Parameters are strings, as query strings are; an
-/// operation parses anything else itself.
+/// The JSON type of a parameter's value. A read takes strings only,
+/// because a query string carries nothing else; a write's body may also
+/// carry numbers and booleans.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParamKind {
+    /// A JSON string.
+    String,
+    /// A JSON number without a fraction that fits `i64`.
+    Integer,
+    /// Any JSON number.
+    Number,
+    /// `true` or `false`.
+    Boolean,
+}
+
+impl ParamKind {
+    /// The JSON Schema `type`.
+    pub fn json_type(self) -> &'static str {
+        match self {
+            Self::String => "string",
+            Self::Integer => "integer",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+        }
+    }
+
+    /// Whether `value` is of this kind. Null, arrays and objects never are.
+    pub fn admits(self, value: &Value) -> bool {
+        match self {
+            Self::String => value.is_string(),
+            Self::Integer => value.is_i64(),
+            Self::Number => value.is_number(),
+            Self::Boolean => value.is_boolean(),
+        }
+    }
+}
+
+/// One declared parameter: a named scalar that the caller may send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Param {
-    /// The key in the query string and in the tool's arguments.
+    /// The key in the query string, the JSON body and the tool's arguments.
     pub name: &'static str,
     /// What the value means, shown in the tool's JSON Schema.
     pub description: &'static str,
     /// Whether a call without it is `invalid_request`.
     pub required: bool,
+    /// The value's JSON type.
+    pub kind: ParamKind,
 }
 
 impl Param {
-    /// A parameter that every call must carry.
+    /// A string parameter that every call must carry.
     pub const fn required(name: &'static str, description: &'static str) -> Self {
         Self {
             name,
             description,
             required: true,
+            kind: ParamKind::String,
         }
     }
 
-    /// A parameter that a call may omit.
+    /// A string parameter that a call may omit.
     pub const fn optional(name: &'static str, description: &'static str) -> Self {
         Self {
             name,
             description,
             required: false,
+            kind: ParamKind::String,
         }
+    }
+
+    /// The same parameter as a whole number, for a write.
+    pub const fn integer(mut self) -> Self {
+        self.kind = ParamKind::Integer;
+        self
+    }
+
+    /// The same parameter as a number, for a write.
+    pub const fn number(mut self) -> Self {
+        self.kind = ParamKind::Number;
+        self
+    }
+
+    /// The same parameter as `true` or `false`, for a write.
+    pub const fn boolean(mut self) -> Self {
+        self.kind = ParamKind::Boolean;
+        self
+    }
+}
+
+/// Whether an operation changes state.
+///
+/// A read is served by `GET` and marked read-only for assistants. A write
+/// is served by `POST` with a JSON body, behind the cross-site check, and
+/// its two hints become the MCP tool's annotations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// Changes nothing.
+    Read,
+    /// Changes state.
+    Write {
+        /// Whether it can remove or overwrite something, as an update or a
+        /// delete does. A pure addition is not destructive.
+        destructive: bool,
+        /// Whether a second identical call changes nothing more.
+        idempotent: bool,
+    },
+}
+
+impl Effect {
+    /// A write that only adds, such as a create.
+    pub const CREATE: Self = Self::Write {
+        destructive: false,
+        idempotent: false,
+    };
+    /// A write that overwrites, such as an update: repeating it is harmless.
+    pub const UPDATE: Self = Self::Write {
+        destructive: true,
+        idempotent: true,
+    };
+    /// A write that removes: repeating it is harmless.
+    pub const DELETE: Self = Self::Write {
+        destructive: true,
+        idempotent: true,
+    };
+
+    /// Whether this is a write.
+    pub const fn is_write(self) -> bool {
+        matches!(self, Self::Write { .. })
     }
 }
 
@@ -247,8 +357,10 @@ pub struct Operation<S, T> {
     pub description: &'static str,
     /// What the caller must hold. It is checked before anything else.
     pub permission: Permission,
-    /// The string parameters. Any other key is refused.
+    /// The parameters. Any other key is refused.
     pub params: &'static [Param],
+    /// Whether it changes state. A read's parameters must all be strings.
+    pub effect: Effect,
     /// The operation's function. [`Operation::call`] is the authorized entry
     /// point: it runs this only after the permission and the parameter
     /// envelope were checked, and every adapter goes through it. The field is
@@ -274,16 +386,30 @@ impl<S, T> Operation<S, T> {
         }
     }
 
-    /// The checks that [`Operation::call`] makes before the function: the
-    /// permission, then the parameter envelope.
-    pub fn admit(&self, principal: &Principal, args: &Args) -> Result<(), OpError> {
-        if !principal.has(self.permission) {
-            return Err(OpError::Forbidden);
+    /// The permission check alone. The HTTP adapter runs it before it reads
+    /// a write's body.
+    pub fn authorize(&self, principal: &Principal) -> Result<(), OpError> {
+        if principal.has(self.permission) {
+            Ok(())
+        } else {
+            Err(OpError::Forbidden)
         }
-        let declared = |key: &str| self.params.iter().any(|param| param.name == key);
+    }
+
+    /// The checks that [`Operation::call`] makes before the function: the
+    /// permission, then the parameter envelope (known keys only, required
+    /// ones present, every value of its declared kind).
+    pub fn admit(&self, principal: &Principal, args: &Args) -> Result<(), OpError> {
+        self.authorize(principal)?;
+        let kind = |key: &str| {
+            self.params
+                .iter()
+                .find(|param| param.name == key)
+                .map(|param| param.kind)
+        };
         let known = args
             .iter()
-            .all(|(key, value)| value.is_string() && declared(key));
+            .all(|(key, value)| kind(key).is_some_and(|kind| kind.admits(value)));
         let complete = self
             .params
             .iter()
@@ -326,6 +452,9 @@ impl<S, T> Operation<S, T> {
                 .any(|other| other.name == param.name)
             {
                 return invalid("a parameter is declared twice");
+            }
+            if self.effect == Effect::Read && param.kind != ParamKind::String {
+                return invalid("a read's parameters must be strings; only a write has a body");
             }
         }
         Ok(())
@@ -390,8 +519,61 @@ mod tests {
     }
 
     #[test]
-    fn param_helpers_set_required() {
+    fn param_helpers_set_required_and_the_kind() {
         assert!(Param::required("id", "The id.").required);
         assert!(!Param::optional("q", "A search.").required);
+        assert_eq!(Param::required("id", "The id.").kind, ParamKind::String);
+        assert_eq!(
+            Param::optional("n", "A count.").integer().kind,
+            ParamKind::Integer
+        );
+        assert_eq!(
+            Param::required("x", "A ratio.").number().kind,
+            ParamKind::Number
+        );
+        assert_eq!(
+            Param::required("on", "A flag.").boolean().kind,
+            ParamKind::Boolean
+        );
+    }
+
+    #[test]
+    fn kinds_admit_only_their_own_json_type() {
+        use serde_json::json;
+        let cases = [
+            (json!("x"), [true, false, false, false]),
+            (json!(""), [true, false, false, false]),
+            (json!(3), [false, true, true, false]),
+            (json!(-3), [false, true, true, false]),
+            (json!(1.5), [false, false, true, false]),
+            (json!(1e300), [false, false, true, false]),
+            (json!(18446744073709551615_u64), [false, false, true, false]),
+            (json!(true), [false, false, false, true]),
+            (json!(null), [false; 4]),
+            (json!([1]), [false; 4]),
+            (json!({"a": 1}), [false; 4]),
+        ];
+        let kinds = [
+            ParamKind::String,
+            ParamKind::Integer,
+            ParamKind::Number,
+            ParamKind::Boolean,
+        ];
+        for (value, expected) in cases {
+            for (kind, admitted) in kinds.iter().zip(expected) {
+                assert_eq!(kind.admits(&value), admitted, "{kind:?} {value}");
+            }
+        }
+        assert_eq!(ParamKind::Integer.json_type(), "integer");
+        assert!(Effect::CREATE.is_write() && Effect::DELETE.is_write());
+        assert!(!Effect::Read.is_write());
+        assert_eq!(
+            OpError::Conflict {
+                code: "in_use",
+                phrase: "In use"
+            }
+            .code(),
+            "in_use"
+        );
     }
 }

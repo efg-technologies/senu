@@ -21,6 +21,7 @@
 //! Both routers also serve the embedded stylesheet at one exact path under
 //! the reserved prefix `/_senu/`, without credentials (spec 0004, §4).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Router;
@@ -34,7 +35,7 @@ use axum::routing::{MethodRouter, any};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::auth::Authenticate;
+use crate::auth::{self, Authenticate};
 #[cfg(feature = "demo")]
 use crate::auth::{Basic, Bearer};
 #[cfg(feature = "demo")]
@@ -43,12 +44,20 @@ use crate::catalogue::Catalogue;
 use crate::config::ServeConfig;
 #[cfg(feature = "demo")]
 use crate::operation::Principal;
-use crate::operation::{Args, InvalidDeclaration, OpError, Operation, Param};
+use crate::operation::{Args, Effect, InvalidDeclaration, OpError, Operation, Param};
 #[cfg(feature = "demo")]
 use crate::site::Site;
 
 /// Longest accepted request target (path plus query), in bytes.
 pub const MAX_TARGET_BYTES: usize = 2048;
+
+/// Largest body of a write route unless [`Endpoints::max_body_bytes`]
+/// changes it: 64 KiB.
+pub const DEFAULT_MAX_BODY_BYTES: usize = 64 * 1024;
+
+/// The largest value [`Endpoints::max_body_bytes`] and
+/// [`Endpoints::custom_with_body`] accept: 16 MiB.
+pub const MAX_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 
 /// The `Content-Security-Policy` of every HTML page unless
 /// [`Endpoints::html_csp`] replaces it: no scripts, images or frames, only
@@ -69,6 +78,9 @@ pub struct AppState<S> {
     html: Option<Arc<dyn Authenticate>>,
     api: Option<Arc<dyn Authenticate>>,
     html_csp: HeaderValue,
+    html_login: Option<&'static str>,
+    trusted_origins: Vec<&'static str>,
+    max_body: usize,
 }
 
 impl<S> std::fmt::Debug for AppState<S> {
@@ -100,6 +112,15 @@ impl<S> AppStateBuilder<S> {
         self
     }
 
+    /// Sends a page request without a valid credential to `path`, such as
+    /// `/login`, with `303 See Other` instead of answering 401. The path is
+    /// fixed, so it cannot become an open redirect. The JSON API always
+    /// answers 401.
+    pub fn html_login(mut self, path: &'static str) -> Self {
+        self.app.html_login = Some(path);
+        self
+    }
+
     /// The finished state.
     pub fn build(self) -> AppState<S> {
         self.app
@@ -128,6 +149,9 @@ impl<S> AppState<S> {
                 html: None,
                 api: None,
                 html_csp: HeaderValue::from_static(DEFAULT_HTML_CSP),
+                html_login: None,
+                trusted_origins: Vec::new(),
+                max_body: DEFAULT_MAX_BODY_BYTES,
             },
         }
     }
@@ -213,6 +237,9 @@ pub struct Declared {
     pub operation: Option<&'static str>,
     /// The operation's parameters; empty for a custom route or an asset.
     pub params: &'static [Param],
+    /// The operation's effect; `None` for a custom route or an asset. A
+    /// write is served by `POST` with a JSON body.
+    pub effect: Option<Effect>,
 }
 
 /// The application's explicit route table. Declaring an operation exposes
@@ -220,11 +247,27 @@ pub struct Declared {
 pub struct Endpoints<S> {
     routes: Vec<Route<S>>,
     html_csp: &'static str,
+    trusted_origins: Vec<&'static str>,
+    max_body: usize,
+}
+
+/// Whether a route takes a request body.
+#[derive(Clone, Copy)]
+enum BodyLimit {
+    /// Any body is 413.
+    Refused,
+    /// A write: the table's limit.
+    Table,
+    /// A custom route's own limit.
+    Fixed(usize),
 }
 
 struct Route<S> {
     declared: Declared,
     invalid: Option<InvalidDeclaration>,
+    /// Why this row cannot be in a table at all.
+    error: Option<RouteError>,
+    body: BodyLimit,
     /// An asset's content type, checked with the table.
     content_type: Option<&'static str>,
     handler: MethodRouter<Shared<S>>,
@@ -242,7 +285,24 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
         Self {
             routes: Vec::new(),
             html_csp: DEFAULT_HTML_CSP,
+            trusted_origins: Vec::new(),
+            max_body: DEFAULT_MAX_BODY_BYTES,
         }
+    }
+
+    /// Admits write requests from one more exact origin, such as
+    /// `https://app.example.com`, besides the request's own host. Use it
+    /// when pages on another origin of yours post to this API.
+    pub fn trusted_origin(mut self, origin: &'static str) -> Self {
+        self.trusted_origins.push(origin);
+        self
+    }
+
+    /// The largest body of this table's write routes, from 1 byte to
+    /// [`MAX_BODY_LIMIT_BYTES`]. The default is [`DEFAULT_MAX_BODY_BYTES`].
+    pub fn max_body_bytes(mut self, bytes: usize) -> Self {
+        self.max_body = bytes;
+        self
     }
 
     /// An HTML page at `path`, behind the HTML authenticator, rendered by
@@ -259,16 +319,34 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
                             headers: HeaderMap| async move {
             html_route(&app, &method, &uri, &headers, operation, view).await
         };
-        self.push(path, Kind::Html, operation, any(handler))
+        let mut table = self.push(path, Kind::Html, operation, any(handler));
+        if operation.effect.is_write()
+            && let Some(route) = table.routes.last_mut()
+        {
+            route.error = Some(RouteError::WriteNeedsApi(path));
+        }
+        table
     }
 
     /// JSON at `path`, which must be under `/api/`, behind the API
-    /// authenticator.
+    /// authenticator. A read is served by `GET` with its arguments in the
+    /// query. A write is served by `POST` with a JSON object as its body,
+    /// after the cross-site check and before any byte of the body is read.
     pub fn api<T: Serialize + Send + 'static>(
         self,
         path: &'static str,
         operation: &'static Operation<S, T>,
     ) -> Self {
+        if operation.effect.is_write() {
+            let handler = move |State(app): State<Shared<S>>, request: Request| async move {
+                write_route(&app, request, operation).await
+            };
+            let mut table = self.push(path, Kind::Api, operation, any(handler));
+            if let Some(route) = table.routes.last_mut() {
+                route.body = BodyLimit::Table;
+            }
+            return table;
+        }
         let handler = move |State(app): State<Shared<S>>,
                             method: Method,
                             uri: Uri,
@@ -302,8 +380,11 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
                 kind: Kind::Asset,
                 operation: None,
                 params: &[],
+                effect: None,
             },
             invalid: None,
+            error: None,
+            body: BodyLimit::Refused,
             content_type: Some(content_type),
             handler: any(handler),
         });
@@ -322,15 +403,44 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
     /// The override hatch: the application's own handler at `path`. It gets
     /// the size limits and response headers, but no authentication, method
     /// check or CSP; the handler is responsible for those.
-    pub fn custom(mut self, path: &'static str, handler: MethodRouter<Shared<S>>) -> Self {
+    pub fn custom(self, path: &'static str, handler: MethodRouter<Shared<S>>) -> Self {
+        self.push_custom(path, BodyLimit::Refused, handler)
+    }
+
+    /// A `custom` route that takes a request body of at most `max_bytes`,
+    /// for what the application owns itself: a login form, a logout, an
+    /// OAuth callback. A larger `Content-Length` is 413 before the handler
+    /// runs, and Axum's body extractors stop at the same limit. Like
+    /// `custom`, it gets the response headers but no authentication, method
+    /// check, cross-site check or CSP: call [`auth::same_origin`] yourself
+    /// before you change anything for a browser.
+    pub fn custom_with_body(
+        self,
+        path: &'static str,
+        max_bytes: usize,
+        handler: MethodRouter<Shared<S>>,
+    ) -> Self {
+        let handler = handler.layer(axum::extract::DefaultBodyLimit::max(max_bytes));
+        self.push_custom(path, BodyLimit::Fixed(max_bytes), handler)
+    }
+
+    fn push_custom(
+        mut self,
+        path: &'static str,
+        body: BodyLimit,
+        handler: MethodRouter<Shared<S>>,
+    ) -> Self {
         self.routes.push(Route {
             declared: Declared {
                 path,
                 kind: Kind::Custom,
                 operation: None,
                 params: &[],
+                effect: None,
             },
             invalid: None,
+            error: None,
+            body,
             content_type: None,
             handler,
         });
@@ -350,8 +460,11 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
                 kind,
                 operation: Some(operation.name),
                 params: operation.params,
+                effect: Some(operation.effect),
             },
             invalid: operation.check().err(),
+            error: None,
+            body: BodyLimit::Refused,
             content_type: None,
             handler,
         });
@@ -361,6 +474,11 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
     /// The `Content-Security-Policy` that this table's HTML pages carry.
     pub fn csp(&self) -> &'static str {
         self.html_csp
+    }
+
+    /// The largest body that this table's write routes take.
+    pub fn body_limit(&self) -> usize {
+        self.max_body
     }
 
     /// The table's rows, in order.
@@ -376,15 +494,27 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
         self.check(&state)?;
         state.html_csp =
             HeaderValue::from_str(self.html_csp).map_err(|_| RouteError::InvalidCsp)?;
+        state.trusted_origins = self.trusted_origins;
+        state.max_body = self.max_body;
+        let mut bodies: HashMap<&'static str, usize> = HashMap::new();
         let mut router = Router::new();
         for route in self.routes {
+            match route.body {
+                BodyLimit::Refused => {}
+                BodyLimit::Table => {
+                    bodies.insert(route.declared.path, self.max_body);
+                }
+                BodyLimit::Fixed(limit) => {
+                    bodies.insert(route.declared.path, limit);
+                }
+            }
             router = router.route(route.declared.path, route.handler);
         }
         Ok(router
             .route(STYLESHEET_PATH, any(stylesheet))
             .fallback(not_found)
             .with_state(Arc::new(state))
-            .layer(middleware::from_fn(limits))
+            .layer(middleware::from_fn_with_state(Arc::new(bodies), limits))
             .layer(middleware::from_fn(response_headers)))
     }
 
@@ -393,8 +523,32 @@ impl<S: Send + Sync + 'static> Endpoints<S> {
         if self.html_csp.trim().is_empty() || !visible(self.html_csp) {
             return Err(RouteError::InvalidCsp);
         }
+        let in_range = |bytes: usize| (1..=MAX_BODY_LIMIT_BYTES).contains(&bytes);
+        if !in_range(self.max_body) {
+            return Err(RouteError::InvalidBodyLimit);
+        }
+        if let Some(origin) = self
+            .trusted_origins
+            .iter()
+            .find(|origin| !auth::is_origin(origin))
+        {
+            return Err(RouteError::InvalidOrigin(origin));
+        }
+        if let Some(login) = state.html_login
+            && (!is_exact_path(login) || login.starts_with("//"))
+        {
+            return Err(RouteError::InvalidLogin(login));
+        }
         for (i, route) in self.routes.iter().enumerate() {
             let Declared { path, kind, .. } = route.declared;
+            if let Some(error) = route.error {
+                return Err(error);
+            }
+            if let BodyLimit::Fixed(limit) = route.body
+                && !in_range(limit)
+            {
+                return Err(RouteError::InvalidBodyLimit);
+            }
             if !is_exact_path(path) {
                 return Err(RouteError::InvalidPath(path));
             }
@@ -458,6 +612,15 @@ pub enum RouteError {
     /// The CSP of [`Endpoints::html_csp`] is empty or cannot be a header
     /// value.
     InvalidCsp,
+    /// A write operation listed with [`Endpoints::html`]. A write is served
+    /// as JSON by [`Endpoints::api`].
+    WriteNeedsApi(&'static str),
+    /// A body limit outside 1 byte to [`MAX_BODY_LIMIT_BYTES`].
+    InvalidBodyLimit,
+    /// A trusted origin that is not `scheme://host` or `scheme://host:port`.
+    InvalidOrigin(&'static str),
+    /// A login path that is not an exact local path.
+    InvalidLogin(&'static str),
 }
 
 impl std::fmt::Display for RouteError {
@@ -480,6 +643,23 @@ impl std::fmt::Display for RouteError {
             }
             Self::InvalidCsp => {
                 f.write_str("senu: the HTML Content-Security-Policy is empty or not visible ASCII")
+            }
+            Self::WriteNeedsApi(path) => write!(
+                f,
+                "senu: route {path:?} lists a write as an HTML page; list it with .api"
+            ),
+            Self::InvalidBodyLimit => {
+                f.write_str("senu: a body limit must be between 1 byte and 16 MiB")
+            }
+            Self::InvalidOrigin(origin) => write!(
+                f,
+                "senu: trusted origin {origin:?} must look like https://app.example.com"
+            ),
+            Self::InvalidLogin(path) => {
+                write!(
+                    f,
+                    "senu: the login path {path:?} is not an exact local path"
+                )
             }
         }
     }
@@ -524,11 +704,22 @@ pub enum HttpError {
     InvalidRequest,
     /// 404: no such route, or the operation found nothing.
     NotFound,
-    /// 405: any method but `GET`.
+    /// 405: any method but `GET` on a read, or but `POST` on a write.
     MethodNotAllowed,
+    /// 403 `cross_origin`: a browser sent a write from another site.
+    CrossOrigin,
+    /// 415: a write's body is not `application/json`.
+    UnsupportedMediaType,
+    /// 409, from [`OpError::Conflict`].
+    Conflict {
+        /// The JSON error code.
+        code: &'static str,
+        /// The plain-text body.
+        phrase: &'static str,
+    },
     /// 414: the target is longer than [`MAX_TARGET_BYTES`].
     UriTooLong,
-    /// 413: the request has a body.
+    /// 413: a body where none is taken, or one over the route's limit.
     PayloadTooLarge,
     /// 500: the operation or the view failed. No detail is sent.
     Internal,
@@ -546,7 +737,9 @@ impl HttpError {
     pub fn status(self) -> StatusCode {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Forbidden | Self::CrossOrigin => StatusCode::FORBIDDEN,
+            Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Self::Conflict { .. } => StatusCode::CONFLICT,
             Self::InvalidRequest | Self::Invalid { .. } => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
@@ -567,7 +760,9 @@ impl HttpError {
             Self::UriTooLong => "uri_too_long",
             Self::PayloadTooLarge => "payload_too_large",
             Self::Internal => "internal",
-            Self::Invalid { code, .. } => code,
+            Self::CrossOrigin => "cross_origin",
+            Self::UnsupportedMediaType => "unsupported_media_type",
+            Self::Invalid { code, .. } | Self::Conflict { code, .. } => code,
         }
     }
 
@@ -582,7 +777,9 @@ impl HttpError {
             Self::UriTooLong => "URI Too Long",
             Self::PayloadTooLarge => "Payload Too Large",
             Self::Internal => "Internal Server Error",
-            Self::Invalid { phrase, .. } => phrase,
+            Self::CrossOrigin => "Cross-origin request refused",
+            Self::UnsupportedMediaType => "Unsupported Media Type",
+            Self::Invalid { phrase, .. } | Self::Conflict { phrase, .. } => phrase,
         }
     }
 }
@@ -595,6 +792,7 @@ impl From<OpError> for HttpError {
             OpError::NotFound => Self::NotFound,
             OpError::Internal => Self::Internal,
             OpError::Invalid { code, phrase } => Self::Invalid { code, phrase },
+            OpError::Conflict { code, phrase } => Self::Conflict { code, phrase },
         }
     }
 }
@@ -637,14 +835,34 @@ impl Surface {
         response
     }
 
-    /// 401 with the authenticator's challenge.
-    fn unauthorized(self, challenge: HeaderValue) -> Response {
+    /// 401 with the authenticator's challenge, when it has one.
+    fn unauthorized(self, challenge: Option<HeaderValue>) -> Response {
         let mut response = self.error(HttpError::Unauthorized);
-        response
-            .headers_mut()
-            .insert(header::WWW_AUTHENTICATE, challenge);
+        if let Some(challenge) = challenge {
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, challenge);
+        }
         response
     }
+
+    /// 405 for a write route, which allows `POST` only.
+    fn post_only(self) -> Response {
+        let mut response = self.error(HttpError::MethodNotAllowed);
+        response
+            .headers_mut()
+            .insert(header::ALLOW, HeaderValue::from_static("POST"));
+        response
+    }
+}
+
+/// 303 to the fixed login path, for a page request without a credential.
+fn to_login(path: &'static str) -> Response {
+    (
+        StatusCode::SEE_OTHER,
+        [(header::LOCATION, HeaderValue::from_static(path))],
+    )
+        .into_response()
 }
 
 /// The steps every declared route shares: the method, then the surface's
@@ -666,12 +884,72 @@ async fn run_route<S, T>(
         return Err(Box::new(surface.error(HttpError::Internal)));
     };
     let Some(principal) = authenticator.authenticate(headers).await else {
-        return Err(Box::new(surface.unauthorized(authenticator.challenge())));
+        return Err(Box::new(match (surface, app.html_login) {
+            (Surface::Html, Some(login)) => to_login(login),
+            _ => surface.unauthorized(authenticator.challenge()),
+        }));
     };
     let args = query_arguments(uri.query());
     match operation.call(&app.state, &principal, &args).await {
         Ok(result) => Ok((args, result)),
         Err(err) => Err(Box::new(surface.error(err.into()))),
+    }
+}
+
+/// Whether the request declares exactly one `Content-Type` whose media type
+/// is `application/json`; parameters such as a charset are allowed.
+fn is_json(headers: &HeaderMap) -> bool {
+    let mut values = headers.get_all(header::CONTENT_TYPE).iter();
+    let (Some(value), None) = (values.next(), values.next()) else {
+        return false;
+    };
+    value.to_str().is_ok_and(|value| {
+        let media_type = value.split(';').next().unwrap_or("").trim();
+        media_type.eq_ignore_ascii_case("application/json")
+    })
+}
+
+/// The shared handler of every declared write (spec 0007, §3): the method,
+/// the cross-site check, authentication and the permission, and only then
+/// the query, the content type and the body.
+async fn write_route<S, T: Serialize>(
+    app: &AppState<S>,
+    request: Request,
+    operation: &Operation<S, T>,
+) -> Response {
+    let surface = Surface::Api;
+    let (parts, body) = request.into_parts();
+    if parts.method != Method::POST {
+        return surface.post_only();
+    }
+    let authority = parts.uri.authority().map(|authority| authority.as_str());
+    if !auth::same_origin_at(&parts.headers, authority, &app.trusted_origins) {
+        return surface.error(HttpError::CrossOrigin);
+    }
+    let Some(authenticator) = app.authenticator(surface) else {
+        return surface.error(HttpError::Internal);
+    };
+    let Some(principal) = authenticator.authenticate(&parts.headers).await else {
+        return surface.unauthorized(authenticator.challenge());
+    };
+    if let Err(err) = operation.authorize(&principal) {
+        return surface.error(err.into());
+    }
+    if parts.uri.query().is_some_and(|query| !query.is_empty()) {
+        return surface.error(HttpError::InvalidRequest);
+    }
+    if !is_json(&parts.headers) {
+        return surface.error(HttpError::UnsupportedMediaType);
+    }
+    let Ok(bytes) = axum::body::to_bytes(body, app.max_body).await else {
+        return surface.error(HttpError::PayloadTooLarge);
+    };
+    let Ok(Value::Object(args)) = serde_json::from_slice::<Value>(&bytes) else {
+        return surface.error(HttpError::InvalidRequest);
+    };
+    match operation.call(&app.state, &principal, &args).await {
+        Ok(result) => Json(result).into_response(),
+        Err(err) => surface.error(err.into()),
     }
 }
 
@@ -750,12 +1028,52 @@ async fn not_found(uri: Uri) -> Response {
     Surface::for_path(uri.path()).error(HttpError::NotFound)
 }
 
-/// Rejects oversized targets and any request body before routing.
-async fn limits(request: Request, next: Next) -> Response {
-    match over_limits(&request) {
-        Some(err) => Surface::for_path(request.uri().path()).error(err),
+/// Rejects oversized targets before routing, and any request body except
+/// on a route that takes one, where a declared length over the route's
+/// limit is refused; the route's handler enforces the same limit on what
+/// actually arrives.
+async fn limits(
+    State(bodies): State<Arc<HashMap<&'static str, usize>>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    let refused = match bodies.get(path) {
+        None => over_limits(&request),
+        Some(&limit) => {
+            let target = request
+                .uri()
+                .path_and_query()
+                .map_or(0, |target| target.as_str().len());
+            if target > MAX_TARGET_BYTES {
+                Some(HttpError::UriTooLong)
+            } else if declared_length(request.headers()).is_some_and(|length| length > limit) {
+                Some(HttpError::PayloadTooLarge)
+            } else {
+                None
+            }
+        }
+    };
+    match refused {
+        Some(err) => Surface::for_path(path).error(err),
         None => next.run(request).await,
     }
+}
+
+/// The largest `Content-Length` the request declares; a value that is not
+/// a decimal number counts as larger than any limit.
+fn declared_length(headers: &HeaderMap) -> Option<usize> {
+    headers
+        .get_all(header::CONTENT_LENGTH)
+        .iter()
+        .map(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|text| text.parse::<usize>().ok())
+                .unwrap_or(usize::MAX)
+        })
+        .max()
 }
 
 /// The same limits for `senu site`, whose errors are always plain text.

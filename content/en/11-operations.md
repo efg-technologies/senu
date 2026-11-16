@@ -1,6 +1,6 @@
 # Declare an operation
 
-An operation is a read-only function with a name, a description, a permission and string parameters. You declare it once as a constant and list it where it should be reachable.
+An operation is a function with a name, a description, a permission and parameters. You declare it once as a constant and list it where it should be reachable. This page covers reads; [writes](/writes) add a body and a cross-site check.
 
 ## What is an operation made of?
 
@@ -15,6 +15,7 @@ pub const GET_STOCK: Operation<Inventory, Level> = Operation {
         "sku",
         "The SKU: 1 to 16 characters of A-Z, 0-9 and '-'.",
     )],
+    effect: Effect::Read,
     run: Run::Async(|inventory, caller, args| Box::pin(get_stock(inventory, caller, args))),
 };
 ```
@@ -23,6 +24,7 @@ pub const GET_STOCK: Operation<Inventory, Level> = Operation {
 - `description` is one sentence for people and assistants. It becomes the tool's description, so say what the operation returns and for whom.
 - `permission` is a constant of your application, such as `Permission::new("view_stock")`. It is checked before anything else.
 - `params` are the only keys a caller may send. Each is a string with a description; `Param::required` must be present and `Param::optional` may be left out.
+- `effect` is `Effect::Read` for an operation that changes nothing. A read is served by `GET`, and its parameters are strings.
 - `run` is the function: `Run::Sync` for pure work in memory, `Run::Async` for anything that waits.
 
 Senu checks this metadata when the router or the tool list is built. A bad name, an empty description or a parameter declared twice is an error at startup, not a surprise in production.
@@ -72,6 +74,7 @@ Three habits keep it safe:
 | `OpError::Forbidden` | 403 | `forbidden` | The caller lacks the permission. Senu returns this itself before your function runs. |
 | `OpError::InvalidRequest` | 400 | `invalid_request` | The arguments do not fit the declared parameters. |
 | `OpError::Invalid { code, phrase }` | 400 | your `code` | Your own validation error, such as `invalid_sku`. |
+| `OpError::Conflict { code, phrase }` | 409 | your `code` | A [write](/writes) that is well-formed but not possible now. |
 | `OpError::NotFound` | 404 | `not_found` | Nothing matches for this caller. |
 | `OpError::Internal` | 500 | `internal` | A backend failed. Log the cause yourself; the caller sees no detail. |
 
@@ -121,10 +124,10 @@ pub fn tools() -> Vec<McpTool<Inventory>> {
 }
 ```
 
-- `.api(path, &OPERATION)` serves JSON. The path must be under `/api/`.
+- `.api(path, &OPERATION)` serves JSON. The path must be under `/api/`. A read answers `GET`; a write answers `POST`.
 - `.html(path, &OPERATION, view)` serves a page. `view` is a function from the accepted arguments and the result to HTML; with Askama, every value is escaped by default.
 - `.asset(path, content_type, bytes)` serves a public static file, such as your stylesheet.
-- `.custom(path, handler)` is the escape hatch for anything else. It gets the size limits and response headers, but no authentication: that handler is yours.
+- `.custom(path, handler)` is the escape hatch for anything else. It gets the size limits and response headers, but no authentication: that handler is yours. `.custom_with_body(path, max_bytes, handler)` is the same for a route that takes a body, such as a login form.
 - `.html_csp(policy)` replaces the pages' Content-Security-Policy. The default allows same-origin stylesheets and forms and nothing else: no scripts, no images, no frames.
 
 `into_router(state)` checks the whole table and returns an `axum::Router`, or an error that names the path. Paths must be exact, unique and outside `/_senu/`, which is reserved for Senu's built-in stylesheet.
@@ -133,4 +136,4 @@ pub fn tools() -> Vec<McpTool<Inventory>> {
 
 Always the same: limits, method, authentication, permission, the parameter envelope, then your function. Permission before validation matters: a caller without the permission learns nothing about which inputs would have been valid. [The contract tests](/testing) verify this order on your own routes.
 
-Next: [authenticate callers](/authentication).
+Next: [declare a write operation](/writes).

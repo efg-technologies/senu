@@ -33,6 +33,7 @@ jobs:
         run: |
           cargo clippy --locked --no-default-features --lib -- -D warnings
           cargo clippy --locked --no-default-features --features contract --lib -- -D warnings
+          cargo clippy --locked --no-default-features --features stdio --lib -- -D warnings
       - name: Documentation
         env:
           RUSTDOCFLAGS: -D warnings

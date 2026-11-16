@@ -5,6 +5,69 @@ All notable changes to Senu are recorded here. Senu follows
 (0.x) may change the API, and every such change is listed with its
 migration.
 
+## 0.3.0 (unreleased)
+
+Write operations, typed arguments and session scaffolding
+([spec 0007](docs/specs/0007-write-operations.md)), after the first
+adopter's report. Routes, bodies, headers, schemas and codes of every read
+are unchanged.
+
+### Added
+
+- **Write operations.** `Operation` has an `effect`: `Effect::Read`, or
+  `Effect::Write { destructive, idempotent }` with the shorthands
+  `Effect::CREATE`, `UPDATE` and `DELETE`. `Endpoints::api` serves a write
+  by `POST` with a JSON object as its body, in a fixed order: limits, the
+  method, the cross-site check, authentication, the permission, the content
+  type, the body, the envelope, the function. Nothing of the body is parsed
+  before the permission is known.
+- **Typed parameters.** `ParamKind` (`String`, `Integer`, `Number`,
+  `Boolean`) and `Param::integer`, `number` and `boolean`. The envelope and
+  the MCP schema follow the kind. A read's parameters must be strings.
+- **Cross-site protection.** Every write is checked with `Sec-Fetch-Site`,
+  or `Origin` against `Host`, before authentication (403 `cross_origin`).
+  `Endpoints::trusted_origin` admits further origins, and
+  `auth::same_origin` is the same check for `custom` handlers.
+- **Body limits.** 64 KiB per write by default, `Endpoints::max_body_bytes`
+  and `Endpoints::body_limit`.
+- **`OpError::Conflict { code, phrase }`** (409), and `HttpError::Conflict`,
+  `CrossOrigin` and `UnsupportedMediaType`. `Operation::authorize` is the
+  permission check alone.
+- **MCP annotations by effect.** A write's tool has `readOnlyHint: false`
+  and its declared `destructiveHint` and `idempotentHint`.
+  `McpTool::effect` and `McpTool::params`.
+- **Sessions.** `auth::cookie`, and `AppStateBuilder::html_login`, which
+  sends a page request without a credential to a fixed login path with 303.
+- **`Endpoints::custom_with_body`**: a route of the application's own that
+  takes a body up to a limit, with Senu's response headers.
+- **The contract for writes.** CT-8 to CT-12, and `Subject::auth`
+  (`contract::OwnAuth`) to run every check through the application's own
+  authenticators.
+- **The `stdio` feature** for `McpServer::serve_stdio`. Without `demo` and
+  `stdio` the core depends on neither `tokio/net` nor `axum/tokio`.
+- `examples/items.rs`, and a guide page on writes in both languages.
+
+### Changed (migration from 0.2)
+
+- Every `Operation { .. }` needs `effect: Effect::Read` (or a write).
+- A `Param { .. }` literal needs `kind: ParamKind::String`; the helpers
+  `Param::required` and `Param::optional` are unchanged.
+- `Authenticate::challenge` returns `Option<HeaderValue>` and defaults to
+  `None`. Return `Some(..)` where you returned a value, or delete the method
+  in a session authenticator.
+- `contract::Subject` needs `auth: None`.
+- `http::Declared` has an `effect` field.
+- With `default-features = false`, `serve_stdio` needs
+  `features = ["stdio"]`, and an application that calls `axum::serve` must
+  enable Axum's `http1` and `tokio` features itself, as it must enable
+  Tokio's `net`.
+- A write's sample in the contract is a JSON object, not a query string.
+
+### Not adopted
+
+Path parameters, HTML form posts, nested arguments and MCP over HTTP; spec
+0007, §5 gives the reasons.
+
 ## 0.2.0 (2026-11-15)
 
 The first release meant for use as a library

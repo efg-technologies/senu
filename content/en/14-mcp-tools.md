@@ -14,7 +14,7 @@ pub fn tools() -> Vec<McpTool<Inventory>> {
 }
 ```
 
-Each tool takes its name and description from the operation. Its input schema is built from the declared parameters: every property is a string with its description, `required` lists the required ones, and `additionalProperties` is `false`. Every tool is marked `readOnlyHint: true`, because operations are read-only. Nothing is exposed automatically, and no macros or reflection are involved.
+Each tool takes its name and description from the operation. Its input schema is built from the declared parameters: every property has its type and description, `required` lists the required ones, and `additionalProperties` is `false`. A read is marked `readOnlyHint: true`. A [write](/writes) is marked `readOnlyHint: false` with its declared `destructiveHint` and `idempotentHint`. Nothing is exposed automatically, and no macros or reflection are involved.
 
 ## How do you run the server?
 
@@ -33,7 +33,7 @@ async fn serve_mcp() -> Result<(), String> {
 
 `serve_stdio` speaks MCP over the process's stdin and stdout until the client closes stdin. Stdout then carries only JSON-RPC, so log to stderr. `with_info` sets the name and version that `initialize` reports.
 
-Every call runs as the one principal you pass in. Under the MCP specification, a stdio server takes its credentials from its environment: it trusts the local process that starts it, and it authenticates no remote party. Choose that principal with care, and give it only the permissions an assistant should have.
+Every call runs as the one principal you pass in. Under the MCP specification, a stdio server takes its credentials from its environment: it trusts the local process that starts it, and it authenticates no remote party. Choose that principal with care, and give it only the permissions an assistant should have; if it may write, the assistant may write.
 
 ## How do you connect an assistant?
 
@@ -64,11 +64,11 @@ The result arrives twice: as `structuredContent` for clients that read JSON, and
 
 ## What do errors look like?
 
-An operation's error is a normal tool result with `isError: true` and `{"error": "<code>"}`, with the same codes as the JSON API: `forbidden`, `invalid_request`, `not_found`, `internal` or your own. The assistant can read it and correct its call. An unknown tool name is a JSON-RPC error, `-32602`, with a fixed message that does not repeat the name.
+An operation's error is a normal tool result with `isError: true` and `{"error": "<code>"}`, with the same codes as the JSON API: `forbidden`, `invalid_request`, `not_found`, `internal` or your own, including a write's 409 code. The assistant can read it and correct its call. An unknown tool name is a JSON-RPC error, `-32602`, with a fixed message that does not repeat the name.
 
 ## Is MCP over HTTP supported?
 
-Not in version 0.2. Tools run over stdio, which suits assistants that start local programs. For a remote assistant, put the JSON API in front of it, or wait for the HTTP transport in a later version; it needs its own specification, because a remote caller must be authenticated on every request.
+Not in version 0.3. Tools run over stdio, which suits assistants that start local programs. For a remote assistant, put the JSON API in front of it, or wait for the HTTP transport in a later version; it needs its own specification, because a remote caller must be authenticated on every request.
 
 ## What makes a good tool for an assistant?
 

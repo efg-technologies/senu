@@ -65,9 +65,9 @@ fn readmes_list_exactly_the_declared_routes_and_tools() {
 }
 
 /// The course's chapters, as in the table of spec 0003, §8, and the
-/// library guide of spec 0006 (10 to 16). Learner notes outside this table
+/// library guide of specs 0006 and 0007 (10 to 17). Learner notes outside this table
 /// are ignored.
-const CHAPTERS: [&str; 17] = [
+const CHAPTERS: [&str; 18] = [
     "01-start",
     "02-install",
     "03-first-page",
@@ -77,11 +77,12 @@ const CHAPTERS: [&str; 17] = [
     "07-next-steps",
     "10-overview",
     "11-operations",
-    "12-authentication",
-    "13-mcp-tools",
-    "14-deployment",
-    "15-testing",
-    "16-faq",
+    "12-writes",
+    "13-authentication",
+    "14-mcp-tools",
+    "15-deployment",
+    "16-testing",
+    "17-faq",
     "50-sample-note",
     "90-appendix-catalogue",
     "91-appendix-mcp",
@@ -229,8 +230,14 @@ fn guide_excerpts_are_verbatim_copies_of_compiled_files() {
         let english = excerpts("en", chapter);
         assert_eq!(excerpts("ja", chapter), english, "{chapter}");
         for (path, code) in english {
-            let compiled = ["examples/hello.rs", "examples/inventory.rs"].contains(&&*path)
-                || path == "tests/example_inventory.rs";
+            let compiled = [
+                "examples/hello.rs",
+                "examples/inventory.rs",
+                "examples/items.rs",
+                "tests/example_inventory.rs",
+                "tests/example_items.rs",
+            ]
+            .contains(&&*path);
             assert!(compiled, "{chapter}: {path} is not a compiled example");
             assert!(
                 read(&path).contains(code.trim_end_matches('\n')),
@@ -244,7 +251,7 @@ fn guide_excerpts_are_verbatim_copies_of_compiled_files() {
     for chapter in CHAPTERS.iter().filter(|c| ("10".."50").contains(&&c[..2])) {
         let text = read(&format!("content/en/{chapter}.md"));
         let plain = text.lines().filter(|line| *line == "```rust").count();
-        let allowed = usize::from(*chapter == "15-testing");
+        let allowed = usize::from(*chapter == "16-testing");
         assert_eq!(plain, allowed, "{chapter}: unchecked Rust blocks");
     }
 }

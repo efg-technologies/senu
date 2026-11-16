@@ -12,7 +12,7 @@ use senu::auth::{Bearer, Secret};
 use senu::http::{AppState, Endpoints};
 use senu::mcp::{self, McpServer};
 use senu::operation::{
-    Args, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
+    Args, Effect, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +58,7 @@ const GREETING: Operation<Greeter, Greeting> = Operation {
     description: "Greets one person by name.",
     permission: GREET,
     params: &[Param::required("name", "Who to greet: 1 to 40 characters.")],
+    effect: Effect::Read,
     run: Run::Sync(greeting),
 };
 

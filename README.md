@@ -10,8 +10,8 @@
 [Changelog](CHANGELOG.md) ·
 [Security](SECURITY.md)
 
-Senu is an open-source Rust library. You declare a read-only function once,
-with its permission and parameters, and Senu serves it as an HTML page
+Senu is an open-source Rust library. You declare a function once, a read
+or a write, with its permission and parameters, and Senu serves it as an HTML page
 rendered with [Askama](https://askama.rs/), a JSON API on
 [Axum](https://docs.rs/axum) and an [MCP](https://modelcontextprotocol.io/)
 tool for AI assistants built with the official
@@ -28,7 +28,7 @@ cargo add senu --no-default-features
 To build from the Git tag instead of crates.io:
 
 ```sh
-cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.3.0 --no-default-features
 ```
 
 ## A complete application
@@ -79,6 +79,7 @@ const GREETING: Operation<Greeter, Greeting> = Operation {
     description: "Greets one person by name.",
     permission: GREET,
     params: &[Param::required("name", "Who to greet: 1 to 40 characters.")],
+    effect: Effect::Read,
     run: Run::Sync(greeting),
 };
 
@@ -113,7 +114,11 @@ $ curl -H 'Authorization: Bearer choose-a-long-random-value' 'http://127.0.0.1:3
 {"message":"Hello, Ada!"}
 ```
 
-[`examples/inventory.rs`](examples/inventory.rs) goes further: asynchronous
+[`examples/items.rs`](examples/items.rs) adds writes: create, rename and
+delete behind a cookie session, with typed arguments, a login redirect and
+a 409. [`tests/example_items.rs`](tests/example_items.rs) runs the contract
+through its authenticator.
+[`examples/inventory.rs`](examples/inventory.rs) goes further on reads: asynchronous
 operations, an authenticator of its own that reads `X-Api-Key`, two
 tenants, an HTML page, a stylesheet and MCP.
 [`tests/example_inventory.rs`](tests/example_inventory.rs) runs Senu's
@@ -122,15 +127,20 @@ contract over it.
 ## What you get
 
 - **One declaration, three transports.** `Operation` holds the name, the
-  description, the permission, the string parameters and the function.
+  description, the permission, the parameters, the effect and the function.
   `Endpoints` lists the routes and `mcp::tool` the tools. Declaring exposes
   nothing; only what you list is reachable.
 - **One order of checks.** Authentication comes before the permission, and
   the permission before any validation, on HTML, JSON and MCP alike. A
   caller without the permission learns nothing about valid input.
+- **Reads and writes.** A read is served by `GET`. A write is served by
+  `POST` with a JSON body of typed values, refused when a browser sends it
+  from another site, and never parsed before the caller is authenticated
+  and permitted. Its MCP tool is not marked read-only.
 - **Your authentication.** `auth::Authenticate` turns request headers into
   a server-side `Principal`. Bearer and Basic are built in; sessions, API
-  keys in a database or a proxy header are an implementation of the trait.
+  keys in a database or a proxy header are an implementation of the trait,
+  with `auth::cookie` and a login redirect for sessions.
   A route whose authenticator is missing is refused at startup.
 - **Synchronous or asynchronous functions.** `Run::Sync` for work in
   memory, `Run::Async` for anything that waits.
@@ -138,12 +148,14 @@ contract over it.
   repeat the input or a secret. `OpError::Internal` carries no detail.
 - **The contract as a test kit.** `senu::contract::check` (feature
   `contract`) sends real requests through your routes and tools and checks
-  seven rules, CT-1 to CT-7.
+  twelve rules, CT-1 to CT-12, through its own credentials or your
+  authenticator.
 - **A plain `axum::Router`.** Bind it where you like and add tower layers
   for logging, timeouts and rate limits.
 
 The [guide](https://senu.efg-technologies.com/overview.html) explains
 each part: [operations](https://senu.efg-technologies.com/operations.html),
+[writes](https://senu.efg-technologies.com/writes.html),
 [authentication](https://senu.efg-technologies.com/authentication.html),
 [MCP tools](https://senu.efg-technologies.com/mcp-tools.html),
 [deployment](https://senu.efg-technologies.com/deployment.html),
@@ -154,24 +166,29 @@ AI assistants can read
 
 ## Status and limits
 
-Version 0.2 is the first release meant for use as a library. Its API is
-documented and its contract is tested, and it is honest about what it is
-not:
+Version 0.3 adds write operations to the library that 0.2 published. Its
+API is documented and its contract is tested, and it is honest about what
+it is not:
 
-- **Read-only.** Operations are served by `GET` and every MCP tool is
-  marked read-only. There are no write operations, forms or CSRF tokens.
-- **Strings and exact paths.** Parameters are strings, which an operation
-  parses itself, and there are no path parameters.
+- **Writes are JSON only.** A write takes a JSON object by `POST`. There
+  are no HTML form posts, file uploads, idempotency keys or transactions;
+  atomicity is your function's business.
+- **Flat arguments and exact paths.** A read's parameters are strings; a
+  write's may also be numbers and booleans, but not lists or nested
+  objects. There are no path parameters.
 - **MCP over stdio only.** A stdio server trusts the local process that
   starts it. There is no MCP over HTTP.
-- **No sessions, login pages or OAuth.** They belong in your
-  `Authenticate` implementation and your own routes.
+- **No session storage, login pages or OAuth.** Senu reads the cookie and
+  redirects to your login page; the rest belongs in your `Authenticate`
+  implementation and your own routes.
 - **No TLS, logging, timeouts or rate limits.** They belong in front of
   the router or in tower layers.
 - **Not audited, pre-1.0.** Senu has had no independent security audit and
   makes no performance claim. A 0.x minor version may change the API;
   [CHANGELOG.md](CHANGELOG.md) lists every change.
 
+[Spec 0007](docs/specs/0007-write-operations.md) defines writes, and says
+what was not adopted and why.
 [Spec 0006](docs/specs/0006-library-release-and-public-site.md) defines
 this release.
 
@@ -180,6 +197,7 @@ this release.
 | Feature | Default | What it adds |
 |---|---|---|
 | `demo` | yes | The catalogue demo, the `senu` binary and the article site with the course. A dependent turns it off with `default-features = false`. |
+| `stdio` | with `demo` | `McpServer::serve_stdio`. Without `demo` and `stdio` the core needs no sockets, and `cargo check --target wasm32-unknown-unknown` passes when the application gives `uuid` its `js` feature. |
 | `contract` | no | `senu::contract`, the test kit. Enable it under `[dev-dependencies]`. |
 
 The rest of this README describes the demo, the course and development in

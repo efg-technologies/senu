@@ -38,8 +38,8 @@
 //!         })
 //!     }
 //!
-//!     fn challenge(&self) -> HeaderValue {
-//!         HeaderValue::from_static("Bearer realm=\"reports\"")
+//!     fn challenge(&self) -> Option<HeaderValue> {
+//!         Some(HeaderValue::from_static("Bearer realm=\"reports\""))
 //!     }
 //! }
 //! ```
@@ -200,8 +200,98 @@ pub trait Authenticate: Send + Sync + 'static {
     /// The principal for these headers, or `None`.
     fn authenticate<'a>(&'a self, headers: &'a HeaderMap) -> AuthFuture<'a>;
 
-    /// The `WWW-Authenticate` value sent with 401.
-    fn challenge(&self) -> HeaderValue;
+    /// The `WWW-Authenticate` value sent with 401, for a scheme that has
+    /// one. A session authenticator keeps the default, `None`.
+    fn challenge(&self) -> Option<HeaderValue> {
+        None
+    }
+}
+
+/// The value of the cookie `name` when the request carries it exactly once,
+/// for a session [`Authenticate`]. A name that appears twice is treated as
+/// absent, so two layers cannot disagree about which value counts. The
+/// value is returned as sent, without decoding.
+pub fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    let mut found = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| {
+            let (key, value) = pair.trim_start_matches(' ').split_once('=')?;
+            (key == name).then_some(value.trim_end_matches(' '))
+        });
+    match (found.next(), found.next()) {
+        (Some(value), None) if !name.is_empty() => Some(value),
+        _ => None,
+    }
+}
+
+/// Whether `origin` has the form `scheme://host` or `scheme://host:port`,
+/// in visible ASCII without a path.
+pub(crate) fn is_origin(origin: &str) -> bool {
+    let Some((scheme, host)) = origin.split_once("://") else {
+        return false;
+    };
+    matches!(scheme, "https" | "http")
+        && !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-.:[]".contains(&b))
+}
+
+/// Whether a state-changing request may proceed as far as cross-site
+/// request forgery is concerned (spec 0007, §3). The rules are those of Go
+/// 1.25's `CrossOriginProtection`:
+///
+/// 1. An `Origin` equal to one of `trusted` passes.
+/// 2. With `Sec-Fetch-Site`, only `same-origin` and `none` pass.
+/// 3. Otherwise, with `Origin`, its host and port must equal `Host`.
+/// 4. With neither header the request is not from a browser, and passes.
+///
+/// Senu applies this to every declared write. A `custom` handler that
+/// changes state for a browser should call it too. It does nothing against
+/// a non-browser client, which needs no forgery to send a request.
+pub fn same_origin(headers: &HeaderMap, trusted: &[&str]) -> bool {
+    same_origin_at(headers, None, trusted)
+}
+
+/// [`same_origin`] for a request whose host may be in the request target
+/// instead of a `Host` header, as in HTTP/2.
+pub(crate) fn same_origin_at(
+    headers: &HeaderMap,
+    authority: Option<&str>,
+    trusted: &[&str],
+) -> bool {
+    let single = |name: header::HeaderName| {
+        let mut values = headers.get_all(name).iter();
+        match (values.next(), values.next()) {
+            (None, _) => Ok(None),
+            (Some(value), None) => value.to_str().map(Some).map_err(|_| ()),
+            // Two values: refuse rather than guess which one counts.
+            _ => Err(()),
+        }
+    };
+    let (Ok(origin), Ok(site), Ok(host)) = (
+        single(header::ORIGIN),
+        single(header::HeaderName::from_static("sec-fetch-site")),
+        single(header::HOST),
+    ) else {
+        return false;
+    };
+    if let Some(origin) = origin
+        && trusted.contains(&origin)
+    {
+        return true;
+    }
+    match (site, origin) {
+        (Some(site), _) => site == "same-origin" || site == "none",
+        (None, None) => true,
+        (None, Some(origin)) => match (origin.split_once("://"), host.or(authority)) {
+            (Some((_, origin_host)), Some(host)) => origin_host.eq_ignore_ascii_case(host),
+            _ => false,
+        },
+    }
 }
 
 /// The `Authorization` value when exactly one is present. Two headers are
@@ -253,8 +343,10 @@ impl Authenticate for Basic {
         Box::pin(std::future::ready(matches.then(|| self.principal.clone())))
     }
 
-    fn challenge(&self) -> HeaderValue {
-        HeaderValue::from_static("Basic realm=\"senu\", charset=\"UTF-8\"")
+    fn challenge(&self) -> Option<HeaderValue> {
+        Some(HeaderValue::from_static(
+            "Basic realm=\"senu\", charset=\"UTF-8\"",
+        ))
     }
 }
 
@@ -296,8 +388,8 @@ impl Authenticate for Bearer {
         Box::pin(std::future::ready(found))
     }
 
-    fn challenge(&self) -> HeaderValue {
-        HeaderValue::from_static("Bearer realm=\"senu\"")
+    fn challenge(&self) -> Option<HeaderValue> {
+        Some(HeaderValue::from_static("Bearer realm=\"senu\""))
     }
 }
 
@@ -562,7 +654,10 @@ mod tests {
         }
         assert_eq!(now(auth.authenticate(&headers(&[]))), None);
         assert_eq!(now(auth.authenticate(&headers(&[&good, &good]))), None);
-        assert_eq!(auth.challenge(), "Basic realm=\"senu\", charset=\"UTF-8\"");
+        assert_eq!(
+            auth.challenge().unwrap(),
+            "Basic realm=\"senu\", charset=\"UTF-8\""
+        );
         let debug = format!("{auth:?}");
         assert!(
             !debug.contains("web-pass") && !debug.contains("demo"),
@@ -590,7 +685,153 @@ mod tests {
         assert_eq!(now(auth.authenticate(&headers(&[]))), None);
         let twice = headers(&["Bearer token-a", "Bearer token-a"]);
         assert_eq!(now(auth.authenticate(&twice)), None);
-        assert_eq!(auth.challenge(), "Bearer realm=\"senu\"");
+        assert_eq!(auth.challenge().unwrap(), "Bearer realm=\"senu\"");
         assert!(!format!("{auth:?}").contains("token-a"));
+    }
+
+    // Spec 0007, §3: cookies and the cross-site check.
+
+    fn with(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.append(*name, HeaderValue::from_str(value).expect("a header value"));
+        }
+        headers
+    }
+
+    #[test]
+    fn a_cookie_counts_only_when_it_appears_exactly_once() {
+        let one = with(&[("cookie", "theme=dark; sid=abc123; lang=ja")]);
+        assert_eq!(cookie(&one, "sid"), Some("abc123"));
+        assert_eq!(cookie(&one, "theme"), Some("dark"));
+        assert_eq!(cookie(&one, "lang"), Some("ja"));
+        assert_eq!(cookie(&one, "si"), None);
+        assert_eq!(cookie(&one, "sid2"), None);
+        assert_eq!(cookie(&one, ""), None);
+        assert_eq!(cookie(&with(&[]), "sid"), None);
+        // A value may hold '=' and is not decoded.
+        let padded = with(&[("cookie", "sid=a=b%3D; x=1")]);
+        assert_eq!(cookie(&padded, "sid"), Some("a=b%3D"));
+        assert_eq!(cookie(&with(&[("cookie", "sid=")]), "sid"), Some(""));
+        // Twice, in one header or in two, is treated as absent.
+        assert_eq!(cookie(&with(&[("cookie", "sid=a; sid=b")]), "sid"), None);
+        let two = with(&[("cookie", "sid=a"), ("cookie", "sid=a")]);
+        assert_eq!(cookie(&two, "sid"), None);
+        let split = with(&[("cookie", "x=1"), ("cookie", "sid=a")]);
+        assert_eq!(cookie(&split, "sid"), Some("a"));
+        // Names are case-sensitive, and a prefix is another cookie.
+        assert_eq!(cookie(&with(&[("cookie", "SID=a; xsid=b")]), "sid"), None);
+    }
+
+    #[test]
+    fn the_cross_site_check_follows_its_four_rules() {
+        let trusted = ["https://app.example.com"];
+        let cases: [(&[(&'static str, &str)], bool); 17] = [
+            // 4. No browser header at all: a program, not a page.
+            (&[], true),
+            (&[("host", "api.example.com")], true),
+            // 2. Sec-Fetch-Site decides when it is there.
+            (&[("sec-fetch-site", "same-origin")], true),
+            (&[("sec-fetch-site", "none")], true),
+            (&[("sec-fetch-site", "same-site")], false),
+            (&[("sec-fetch-site", "cross-site")], false),
+            (&[("sec-fetch-site", "Same-Origin")], false),
+            (
+                &[
+                    ("sec-fetch-site", "cross-site"),
+                    ("origin", "https://api.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+            // 3. Otherwise Origin against Host.
+            (
+                &[
+                    ("origin", "https://api.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://API.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://api.example.com:8443"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+            (
+                &[
+                    ("origin", "https://attacker.example"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+            (&[("origin", "null"), ("host", "api.example.com")], false),
+            (&[("origin", "https://api.example.com")], false),
+            // 1. A trusted origin passes, whatever else is sent.
+            (
+                &[
+                    ("origin", "https://app.example.com"),
+                    ("host", "api.example.com"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://app.example.com"),
+                    ("sec-fetch-site", "cross-site"),
+                ],
+                true,
+            ),
+            (
+                &[
+                    ("origin", "https://app.example.com.attacker.example"),
+                    ("host", "api.example.com"),
+                ],
+                false,
+            ),
+        ];
+        for (pairs, expected) in cases {
+            assert_eq!(same_origin(&with(pairs), &trusted), expected, "{pairs:?}");
+        }
+        // Two values of one header are refused rather than guessed at.
+        let twice = with(&[
+            ("origin", "https://app.example.com"),
+            ("origin", "https://attacker.example"),
+        ]);
+        assert!(!same_origin(&twice, &trusted));
+        let twice = with(&[
+            ("sec-fetch-site", "same-origin"),
+            ("sec-fetch-site", "cross-site"),
+        ]);
+        assert!(!same_origin(&twice, &[]));
+        // Without a Host header, as in HTTP/2, the target's authority counts.
+        let origin = with(&[("origin", "https://api.example.com")]);
+        assert!(same_origin_at(&origin, Some("api.example.com"), &[]));
+        assert!(!same_origin_at(&origin, Some("other.example.com"), &[]));
+        let both = with(&[
+            ("origin", "https://api.example.com"),
+            ("host", "other.example.com"),
+        ]);
+        assert!(!same_origin_at(&both, Some("api.example.com"), &[]));
+        for (origin, valid) in [
+            ("https://app.example.com", true),
+            ("http://localhost:3000", true),
+            ("https://[::1]:8443", true),
+            ("https://app.example.com/", false),
+            ("app.example.com", false),
+            ("https://", false),
+            ("ftp://app.example.com", false),
+            ("https://a b", false),
+        ] {
+            assert_eq!(is_origin(origin), valid, "{origin}");
+        }
     }
 }

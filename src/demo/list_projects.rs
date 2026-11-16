@@ -5,7 +5,9 @@ use serde_json::{Map, Value};
 
 use super::{LIST_PROJECTS, ProjectSummary};
 use crate::catalogue::Catalogue;
-use crate::operation::{Args, OpError, Operation, Param, Principal, Run, decode};
+use crate::operation::{
+    Args, Effect, OpError, Operation, Param, ParamKind, Principal, Run, decode,
+};
 use crate::view;
 
 /// Longest accepted search, counted in Unicode scalar values after trimming.
@@ -24,7 +26,9 @@ pub const OPERATION: Operation<Catalogue, ProjectList> = Operation {
                       the trimmed value may hold at most 80 Unicode scalar values \
                       and no control characters. Empty means no search.",
         required: false,
+        kind: ParamKind::String,
     }],
+    effect: Effect::Read,
     run: Run::Sync(list_projects),
 };
 

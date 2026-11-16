@@ -8,10 +8,10 @@ A service that people, programs and AI assistants all use needs three front door
 
 With Senu you write the function once and declare what it needs. Senu's adapters then run the same steps for every route and tool, in one fixed order:
 
-1. Size limits and the method: a long address is 414, a body is 413, anything but `GET` is 405.
+1. Size limits and the method: a long address is 414, a body where none is taken is 413, and a read answers only `GET`, a write only `POST`.
 2. Authentication: your authenticator turns the request's headers into a server-side principal, or the answer is 401.
 3. Permission: a principal without the operation's permission gets 403, whatever it sent.
-4. The parameter envelope: unknown, repeated or non-string parameters are `invalid_request`.
+4. The parameter envelope: unknown or repeated parameters and values of the wrong type are `invalid_request`.
 5. Your function.
 6. The result as JSON, as a page or as a tool result, or one fixed error that repeats neither the input nor a secret.
 
@@ -26,7 +26,7 @@ use senu::auth::{Bearer, Secret};
 use senu::http::{AppState, Endpoints};
 use senu::mcp::{self, McpServer};
 use senu::operation::{
-    Args, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
+    Args, Effect, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +72,7 @@ const GREETING: Operation<Greeter, Greeting> = Operation {
     description: "Greets one person by name.",
     permission: GREET,
     params: &[Param::required("name", "Who to greet: 1 to 40 characters.")],
+    effect: Effect::Read,
     run: Run::Sync(greeting),
 };
 
@@ -126,29 +127,30 @@ cargo add axum tokio serde --features tokio/macros,tokio/rt,tokio/net,serde/deri
 To build from the Git tag instead of crates.io, use this in place of the first line:
 
 ```sh manual
-cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.3.0 --no-default-features
 ```
 
 `--no-default-features` leaves out the `demo` feature, which holds the sample catalogue, the `senu` binary and this site. Add `askama` when you render pages, and enable Senu's `contract` feature under `[dev-dependencies]` for [the contract tests](/testing).
 
 ## When should you use Senu, and when not?
 
-Use Senu when the same read-only data must reach people, programs and assistants, and you want one place for authorization: internal dashboards, catalogues, status and reporting services, and tools that let an assistant look things up without letting it change anything.
+Use Senu when the same data and the same actions must reach people, programs and assistants, and you want one place for authorization: internal dashboards, catalogues, status and reporting services, and tools that let an assistant look things up or make a change that a person could make.
 
-Do not use Senu 0.2 as your whole web framework. It has no write operations, no forms, no sessions and no database layer. A Senu router is an ordinary `axum::Router`, so the usual pattern is to merge it into an Axum application that does the rest.
+Do not use Senu as your whole web framework. It has no forms, no session storage, no login pages and no database layer. A Senu router is an ordinary `axum::Router`, so the usual pattern is to merge it into an Axum application that does the rest.
 
-## What are the limits of version 0.2?
+## What are the limits of version 0.3?
 
-- Operations are read-only and served by `GET`.
-- Parameters are strings; an operation parses numbers and dates itself.
+- A read is served by `GET` and a write by `POST` with a JSON body. There are no HTML form posts and no file uploads.
+- A read's parameters are strings. A write's may also be numbers and booleans, but not lists or nested objects.
 - Paths are exact: there are no path parameters.
 - MCP runs over stdio. MCP over HTTP is not included.
-- The built-in authenticators hold static secrets. Sessions, OAuth and key rotation are yours to write, behind one trait.
+- The built-in authenticators hold static secrets. Sessions are yours to store; Senu reads the cookie and can send people to your login page. OAuth and key rotation are yours to write, behind one trait.
 - Senu is not audited security software, and the API may change between 0.x versions.
 
 ## Where next?
 
 - [Declare an operation](/operations): parameters, errors, asynchronous work and pages.
+- [Declare a write operation](/writes): typed arguments, the cross-site check and 409.
 - [Authenticate callers](/authentication): the built-in authenticators and your own.
 - [Expose operations as MCP tools](/mcp-tools).
 - [Deploy and operate](/deployment): what Senu does and what stays with you.

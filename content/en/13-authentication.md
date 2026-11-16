@@ -63,19 +63,64 @@ impl Authenticate for ApiKeys {
         })
     }
 
-    fn challenge(&self) -> HeaderValue {
-        HeaderValue::from_static("ApiKey realm=\"inventory\"")
+    fn challenge(&self) -> Option<HeaderValue> {
+        Some(HeaderValue::from_static("ApiKey realm=\"inventory\""))
     }
 }
 ```
 
-`authenticate` is asynchronous, so it can ask a database or a cache. It receives only the headers: the path, the query string and the body are never passed in, so a credential in a URL cannot be read even by mistake. `challenge` is the `WWW-Authenticate` value sent with the 401.
+`authenticate` is asynchronous, so it can ask a database or a cache. It receives only the headers: the path, the query string and the body are never passed in, so a credential in a URL cannot be read even by mistake. `challenge` is the `WWW-Authenticate` value sent with the 401; it is optional, and a session authenticator leaves it out.
 
 The same trait covers the common production cases:
 
-- **Session cookies:** read the `Cookie` header, look the session up, and build the principal with `Principal::owned`.
+- **Session cookies:** `auth::cookie(headers, "sid")` returns the cookie when it appears exactly once; look the session up and build the principal with `Principal::owned`. The next section shows it.
 - **API keys in a database:** hash the presented key, look the hash up, and map the stored scopes to permissions.
 - **A trusted proxy:** read the header that your gateway sets after it verified a JWT, and accept it only from that gateway's network.
+
+## How do cookie sessions work?
+
+`examples/items.rs` signs people in with a session cookie. The authenticator is a few lines, because Senu parses the cookie and the application owns the sessions:
+
+```rust excerpt=examples/items.rs
+pub struct Sessions(pub Store);
+
+impl Authenticate for Sessions {
+    fn authenticate<'a>(&'a self, headers: &'a HeaderMap) -> AuthFuture<'a> {
+        Box::pin(async move {
+            let session = auth::cookie(headers, "sid")?;
+            self.0.lock().sessions.get(session).cloned()
+        })
+    }
+}
+```
+
+A page request without a session should go to a login page, not get a 401. `html_login` does that with `303 See Other` to one fixed path, so it cannot become an open redirect; the JSON API still answers 401:
+
+```rust excerpt=examples/items.rs
+pub fn state(store: Store) -> AppState<Store> {
+    AppState::builder(store.clone())
+        .html_auth(Sessions(store.clone()))
+        .api_auth(Sessions(store))
+        .html_login("/login")
+        .build()
+}
+```
+
+The login page itself, the logout and an OAuth callback are routes of your own. List them with `.custom`, or with `.custom_with_body` when they take a form, so that they get Senu's limits and response headers:
+
+```rust excerpt=examples/items.rs
+async fn logout(State(app): State<Shared<Store>>, headers: HeaderMap) -> impl IntoResponse {
+    if !auth::same_origin(&headers, &[]) {
+        return (StatusCode::FORBIDDEN, "Cross-origin request refused\n");
+    }
+    if let Some(session) = auth::cookie(&headers, "sid") {
+        app.state().sign_out(session);
+    }
+    (StatusCode::OK, "Signed out\n")
+}
+```
+
+Set the session cookie with `HttpOnly`, `Secure` and `SameSite=Lax`, keep the session id long and random, and store only its hash.
 
 ## What happens when an authenticator is missing?
 
@@ -83,7 +128,7 @@ The table is refused. `into_router` returns `RouteError::NoAuthenticator` for an
 
 ## Does Senu protect against CSRF?
 
-Version 0.2 has no write operations, so there is nothing for a forged request to change. Reads still deserve care: Senu sends no CORS headers, so a script on another origin cannot read a response, and every response is sent with `Cache-Control: no-store`. When write operations arrive in a later version, they will come with their own rules.
+Yes, for every declared write. A browser attaches cookies and Basic credentials to requests that another site triggers, so Senu checks each write with `Sec-Fetch-Site`, or with `Origin` against `Host`, before authentication, and refuses a cross-site request with 403 `cross_origin`; [the writes page](/writes) has the rules. A `custom` route that changes something must call `auth::same_origin` itself, as the logout above does. Senu sends no CORS headers, so a script on another origin cannot read a response, and every response is sent with `Cache-Control: no-store`.
 
 ## What should you check before going live?
 

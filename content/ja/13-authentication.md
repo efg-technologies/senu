@@ -63,19 +63,64 @@ impl Authenticate for ApiKeys {
         })
     }
 
-    fn challenge(&self) -> HeaderValue {
-        HeaderValue::from_static("ApiKey realm=\"inventory\"")
+    fn challenge(&self) -> Option<HeaderValue> {
+        Some(HeaderValue::from_static("ApiKey realm=\"inventory\""))
     }
 }
 ```
 
-`authenticate` は非同期なので、データベースやキャッシュに問い合わせられます。渡されるのはヘッダーだけです。パス、クエリ文字列、ボディは渡されないので、URL に入った資格情報を誤って読むことがありません。`challenge` は、401 と一緒に送る `WWW-Authenticate` の値です。
+`authenticate` は非同期なので、データベースやキャッシュに問い合わせられます。渡されるのはヘッダーだけです。パス、クエリ文字列、ボディは渡されないので、URL に入った資格情報を誤って読むことがありません。`challenge` は、401 と一緒に送る `WWW-Authenticate` の値です。省略でき、セッションの認証器では書きません。
 
 本番でよくある形は、同じトレイトで書けます。
 
-- **セッション Cookie:** `Cookie` ヘッダーを読み、セッションを引き、`Principal::owned` でプリンシパルを作ります。
+- **セッション Cookie:** `auth::cookie(headers, "sid")` は、その Cookie がちょうど 1 つあるときに値を返します。セッションを引き、`Principal::owned` でプリンシパルを作ります。次の節に例があります。
 - **データベースの API キー:** 提示されたキーをハッシュし、そのハッシュを引き、保存してあるスコープを権限に対応づけます。
 - **信頼できるプロキシ:** ゲートウェイが JWT を検証したあとに付けるヘッダーを読みます。そのゲートウェイのネットワークからのリクエストだけを受け付けます。
+
+## Cookie のセッションはどう扱いますか
+
+`examples/items.rs` は、セッションの Cookie でサインインします。認証器は数行で済みます。Cookie の解析は Senu が行い、セッションはアプリケーションが持つからです。
+
+```rust excerpt=examples/items.rs
+pub struct Sessions(pub Store);
+
+impl Authenticate for Sessions {
+    fn authenticate<'a>(&'a self, headers: &'a HeaderMap) -> AuthFuture<'a> {
+        Box::pin(async move {
+            let session = auth::cookie(headers, "sid")?;
+            self.0.lock().sessions.get(session).cloned()
+        })
+    }
+}
+```
+
+セッションのないページの要求は、401 を返すのではなく、ログイン画面に移したいものです。`html_login` は、固定の 1 つのパスへ `303 See Other` で移します。パスが固定なので、任意の場所へのリダイレクトには使えません。JSON API はこれまでどおり 401 を返します。
+
+```rust excerpt=examples/items.rs
+pub fn state(store: Store) -> AppState<Store> {
+    AppState::builder(store.clone())
+        .html_auth(Sessions(store.clone()))
+        .api_auth(Sessions(store))
+        .html_login("/login")
+        .build()
+}
+```
+
+ログイン画面そのもの、ログアウト、OAuth の戻り先は、あなた自身のルートです。`.custom` で一覧に載せます。フォームを受け取るなら `.custom_with_body` を使います。どちらにも Senu の上限と応答ヘッダーが付きます。
+
+```rust excerpt=examples/items.rs
+async fn logout(State(app): State<Shared<Store>>, headers: HeaderMap) -> impl IntoResponse {
+    if !auth::same_origin(&headers, &[]) {
+        return (StatusCode::FORBIDDEN, "Cross-origin request refused\n");
+    }
+    if let Some(session) = auth::cookie(&headers, "sid") {
+        app.state().sign_out(session);
+    }
+    (StatusCode::OK, "Signed out\n")
+}
+```
+
+セッションの Cookie には `HttpOnly`・`Secure`・`SameSite=Lax` を付けます。セッション ID は長くランダムにし、保存するのはそのハッシュだけにします。
 
 ## 認証器がないとどうなりますか
 
@@ -83,7 +128,7 @@ impl Authenticate for ApiKeys {
 
 ## Senu は CSRF から守りますか
 
-バージョン 0.2 には書き込み操作がないので、偽造されたリクエストが変えられるものがありません。読み取りにも注意は要ります。Senu は CORS ヘッダーを送らないので、別オリジンのスクリプトはレスポンスを読めません。すべてのレスポンスには `Cache-Control: no-store` が付きます。あとのバージョンで書き込み操作が入るときは、専用の規則と一緒に入ります。
+はい。宣言した書き込みのすべてを守ります。ブラウザは、別のサイトが引き起こした要求にも Cookie や Basic の資格情報を付けます。そこで Senu は、認証の前に、各書き込みを `Sec-Fetch-Site` で、または `Origin` と `Host` の比較で検査し、別サイトからの要求を 403 `cross_origin` で断ります。規則は[書き込みのページ](/ja/writes)にあります。何かを変える `custom` ルートは、上のログアウトのように、自分で `auth::same_origin` を呼ぶ必要があります。Senu は CORS ヘッダーを送らないので、別オリジンのスクリプトは応答を読めません。すべての応答には `Cache-Control: no-store` が付きます。
 
 ## 公開前に何を確かめますか
 

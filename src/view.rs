@@ -130,7 +130,7 @@ pub static ENGLISH: Labels = Labels {
     previous: "Previous",
     next: "Next",
     index_title: "Senu: one Rust function as a web page, a JSON API and an MCP tool",
-    intro: "Senu is an open-source Rust library. You declare a read-only function once, \
+    intro: "Senu is an open-source Rust library. You declare a function once, a read or a write, \
             with its permission and parameters, and Senu serves it as an HTML page, \
             a JSON API and an MCP tool for AI assistants, with the same authentication order, \
             the same errors and one contract test suite for all three. \
@@ -184,7 +184,7 @@ pub static JAPANESE: Labels = Labels {
     previous: "前へ",
     next: "次へ",
     index_title: "Senu: Rust の関数ひとつを Web ページ・JSON API・MCP ツールに",
-    intro: "Senu はオープンソースの Rust ライブラリです。読み取り専用の関数を、権限とパラメータと一緒に一度だけ宣言すると、\
+    intro: "Senu はオープンソースの Rust ライブラリです。読み取りでも書き込みでも、関数を権限とパラメータと一緒に一度だけ宣言すると、\
             Senu がそれを HTML ページ、JSON API、AI アシスタント向けの MCP ツールとして提供します。\
             認証の順序もエラーも 3 つで同じで、同じ契約テストで確かめられます。\
             Axum、Askama、公式の rmcp SDK の上に作られています。",

@@ -7,14 +7,14 @@
   the catalogue application in `src/demo/`, the `senu` binary
   (`senu serve`, loopback only, and opt-in stdio MCP) and `senu site`,
   which serves trusted Markdown articles from `content/` without
-  credentials. New behaviour, such as writes, MCP over HTTP, storage or
-  sessions, needs a new spec in `docs/specs/` first. Demo credentials stay
+  credentials. New behaviour, such as MCP over HTTP, HTML form posts,
+  storage or session stores, needs a new spec in `docs/specs/` first. Demo credentials stay
   loopback-only.
 - Public API changes go in `CHANGELOG.md` with their migration, keep
   `#![warn(missing_docs)]` clean for the core, and keep `examples/`
   compiling: the guide and both READMEs copy code from `examples/hello.rs`,
-  `examples/inventory.rs` and `tests/example_inventory.rs` verbatim, which
-  `tests/docs_sync.rs` checks. Claims stay measured: no audit, no
+  `examples/inventory.rs`, `examples/items.rs` and their tests verbatim,
+  which `tests/docs_sync.rs` checks. Claims stay measured: no audit, no
   performance numbers, no search ranking.
 - Declared operations (spec 0005): the application is `src/demo/`
   (permissions, principals, `endpoints()`, `tools()` and one file per
@@ -23,11 +23,18 @@
   each listed operation a sample in `demo_subject`, and keep the README
   route lists in step (`tests/docs_sync.rs`). `.custom` routes get no
   authentication; their handler owns it.
+- Writes (spec 0007): a declared write is served by `POST` only, after the
+  cross-site check and before any byte of its body is parsed; keep that
+  order in `http::write_route`, and keep CT-8 to CT-12 in `src/contract.rs`
+  failing under the mutations that `docs/development.md` lists. The demo
+  stays read-only; `examples/items.rs` is the write example.
 - Specs: `docs/specs/0001-project-catalogue.md` for the catalogue and
   `docs/specs/0003-articles-and-beginner-tutorial.md` for the articles, the
   site and the course (spec 0002, the mdBook tutorial, is superseded), and
   `docs/specs/0006-library-release-and-public-site.md` for the library,
-  the guide (articles 10 to 49) and the public site.
+  the guide (articles 10 to 49) and the public site, and
+  `docs/specs/0007-write-operations.md` for writes, typed arguments and
+  sessions.
   `docs/development.md` records only checks that were actually run.
 - Articles: `content/en` is canonical and `content/ja` mirrors it chapter
   for chapter. `build.rs` embeds every `NN-slug.md` file; there is no

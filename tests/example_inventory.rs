@@ -79,6 +79,7 @@ async fn the_example_meets_senus_contract() {
         tools: inventory::tools,
         principal: NORTH_CLERK,
         samples: &[("get_stock", "sku=BOLT-8"), ("list_low_stock", "below=10")],
+        auth: None,
     })
     .await;
 }
