@@ -8,10 +8,10 @@ Senu は、一度宣言した関数を HTML ページ・JSON API・MCP ツール
 
 Senu では関数を一度だけ書き、その関数に必要なものを宣言します。あとは Senu のアダプターが、すべてのルートとツールで同じ手順を決まった順序で実行します。
 
-1. サイズの上限とメソッド: 長すぎるアドレスは 414、ボディがあれば 413、`GET` 以外は 405 です。
+1. サイズの上限とメソッド: 長すぎるアドレスは 414、本文を受け取らない所に本文があれば 413 です。読み取りは `GET` だけ、書き込みは `POST` だけに答えます。
 2. 認証: あなたの認証器がリクエストのヘッダーからサーバー側のプリンシパルを決めます。決まらなければ 401 です。
 3. 権限: 操作の権限を持たないプリンシパルには、何を送ってきても 403 を返します。
-4. パラメータの枠: 未知・重複・文字列以外のパラメータは `invalid_request` です。
+4. パラメータの枠: 未知や重複のパラメータ、型の違う値は `invalid_request` です。
 5. あなたの関数。
 6. 結果を JSON・ページ・ツールの結果として返します。失敗したときは固定のエラーを返し、入力も秘密も繰り返しません。
 
@@ -26,7 +26,7 @@ use senu::auth::{Bearer, Secret};
 use senu::http::{AppState, Endpoints};
 use senu::mcp::{self, McpServer};
 use senu::operation::{
-    Args, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
+    Args, Effect, OpError, Operation, Param, Permission, Principal, Run, TenantId, decode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +72,7 @@ const GREETING: Operation<Greeter, Greeting> = Operation {
     description: "Greets one person by name.",
     permission: GREET,
     params: &[Param::required("name", "Who to greet: 1 to 40 characters.")],
+    effect: Effect::Read,
     run: Run::Sync(greeting),
 };
 
@@ -126,29 +127,30 @@ cargo add axum tokio serde --features tokio/macros,tokio/rt,tokio/net,serde/deri
 crates.io の代わりに Git のタグからビルドするには、1 行目を次のコマンドに置き換えます。
 
 ```sh manual
-cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.3.0 --no-default-features
 ```
 
 `--no-default-features` は `demo` 機能を外します。`demo` にはサンプルのカタログ、`senu` バイナリ、このサイトが入っています。ページを描画するなら `askama` を足します。[契約テスト](/ja/testing)を使うなら、`[dev-dependencies]` で Senu の `contract` 機能を有効にします。
 
 ## いつ使い、いつ使わないか
 
-同じ読み取り専用のデータを人・プログラム・アシスタントに届け、認可を 1 か所にまとめたいときに使います。社内ダッシュボード、カタログ、状況や集計を返すサービス、アシスタントに調べ物だけをさせるツールが向いています。
+同じデータと同じ操作を人・プログラム・アシスタントに届け、認可を 1 か所にまとめたいときに使います。社内ダッシュボード、カタログ、状況や集計を返すサービス、アシスタントに調べ物や、人にもできる変更をさせるツールが向いています。
 
-Senu 0.2 を Web フレームワークの全体として使うのは向きません。書き込み操作、フォーム、セッション、データベース層がありません。Senu のルーターはふつうの `axum::Router` なので、残りを受け持つ Axum アプリケーションに合流させるのが普通の使い方です。
+Senu を Web フレームワークの全体として使うのは向きません。フォーム、セッションの保存、ログイン画面、データベース層がありません。Senu のルーターはふつうの `axum::Router` なので、残りを受け持つ Axum アプリケーションに合流させるのが普通の使い方です。
 
-## バージョン 0.2 の制限は何ですか
+## バージョン 0.3 の制限は何ですか
 
-- 操作は読み取り専用で、`GET` で提供します。
-- パラメータは文字列です。数値や日付は操作が自分で解釈します。
+- 読み取りは `GET`、書き込みは JSON の本文つきの `POST` で提供します。HTML フォームの送信とファイルのアップロードはありません。
+- 読み取りのパラメータは文字列です。書き込みでは数値と真偽値も使えますが、リストや入れ子のオブジェクトは使えません。
 - パスは完全一致です。パスパラメータはありません。
 - MCP は stdio で動きます。MCP over HTTP は含みません。
-- 組み込みの認証器は固定の秘密を持ちます。セッション、OAuth、鍵の更新は、1 つのトレイトの裏であなたが書きます。
+- 組み込みの認証器は固定の秘密を持ちます。セッションの保存はあなたの側です。Senu は Cookie を読み、ログイン画面へ移動させることができます。OAuth と鍵の更新は、1 つのトレイトの裏であなたが書きます。
 - Senu は監査済みのセキュリティソフトウェアではありません。0.x の間は API が変わることがあります。
 
 ## 次に読むページ
 
 - [操作を宣言する](/ja/operations): パラメータ、エラー、非同期処理、ページ。
+- [書き込みの操作を宣言する](/ja/writes): 型つきの引数、別サイトの検査、409。
 - [呼び出し元を認証する](/ja/authentication): 組み込みの認証器と自作の認証器。
 - [操作を MCP ツールとして公開する](/ja/mcp-tools)。
 - [デプロイと運用](/ja/deployment): Senu がすることと、あなたに残ること。

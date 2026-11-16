@@ -1,8 +1,8 @@
 //! Senu: declare a function once and serve it as a web page, a JSON API and
 //! an MCP tool.
 //!
-//! An [`operation::Operation`] is a read-only function over your state with
-//! a name, a description, a permission and its string parameters. You list
+//! An [`operation::Operation`] is a function over your state, a read or a
+//! write, with a name, a description, a permission and its parameters. You list
 //! it in an [`http::Endpoints`] table and in an MCP tool list; Senu's
 //! adapters then do the same steps for every route and tool, in the same
 //! order: size limits, the method, authentication, the permission, the
@@ -80,14 +80,18 @@
 //! - `demo` (default): the catalogue demo, the `senu` binary and the article
 //!   site that holds the beginner course. A library user turns it off with
 //!   `default-features = false`.
+//! - `stdio` (with `demo`): [`mcp::McpServer::serve_stdio`]. Without `demo`
+//!   and `stdio` the core needs no sockets.
 //! - `contract`: the test kit. Enable it in `[dev-dependencies]`.
 //!
 //! # Limits
 //!
-//! Operations are read-only and served by `GET`; parameters are strings;
-//! paths are exact. MCP runs over stdio. Writes, MCP over HTTP, sessions and
-//! OAuth are not part of this version. Senu is not audited security
-//! software; read `SECURITY.md` before you rely on it.
+//! A read is served by `GET` with string parameters. A write is served by
+//! `POST` with a JSON object of strings, numbers and booleans, after a
+//! cross-site check and before any byte of the body is parsed. Paths are
+//! exact. MCP runs over stdio. HTML form posts, nested arguments, MCP over
+//! HTTP, session storage and OAuth are not part of this version. Senu is
+//! not audited security software; read `SECURITY.md` before you rely on it.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

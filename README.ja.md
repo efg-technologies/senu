@@ -10,8 +10,8 @@
 [変更履歴](CHANGELOG.md) ·
 [セキュリティ](SECURITY.md)
 
-Senu はオープンソースの Rust ライブラリです。読み取り専用の関数を、権限とパラメータと
-一緒に一度だけ宣言します。Senu はそれを、[Askama](https://askama.rs/) で描画する HTML
+Senu はオープンソースの Rust ライブラリです。読み取りでも書き込みでも、関数を権限と
+パラメータと一緒に一度だけ宣言します。Senu はそれを、[Askama](https://askama.rs/) で描画する HTML
 ページ、[Axum](https://docs.rs/axum) の JSON API、公式 SDK
 [`rmcp`](https://rust.sdk.modelcontextprotocol.io/) で作った AI アシスタント向けの
 [MCP](https://modelcontextprotocol.io/) ツールとして提供します。3 つとも同じ手順を同じ
@@ -26,7 +26,7 @@ cargo add senu --no-default-features
 crates.io の代わりに、Git のタグからビルドすることもできます。
 
 ```sh
-cargo add senu --git https://github.com/efg-technologies/senu --tag v0.2.0 --no-default-features
+cargo add senu --git https://github.com/efg-technologies/senu --tag v0.3.0 --no-default-features
 ```
 
 ## 完全なアプリケーション
@@ -77,6 +77,7 @@ const GREETING: Operation<Greeter, Greeting> = Operation {
     description: "Greets one person by name.",
     permission: GREET,
     params: &[Param::required("name", "Who to greet: 1 to 40 characters.")],
+    effect: Effect::Read,
     run: Run::Sync(greeting),
 };
 
@@ -111,32 +112,43 @@ $ curl -H 'Authorization: Bearer choose-a-long-random-value' 'http://127.0.0.1:3
 {"message":"Hello, Ada!"}
 ```
 
-[`examples/inventory.rs`](examples/inventory.rs) はもう一歩進んだ例です。非同期の操作、
+[`examples/items.rs`](examples/items.rs) は書き込みの例です。Cookie のセッションの
+後ろに作成・名前変更・削除があり、型つきの引数、ログイン画面への移動、409 を含みます。
+[`tests/example_items.rs`](tests/example_items.rs) が、この例の認証器を通して契約テストを
+走らせます。
+[`examples/inventory.rs`](examples/inventory.rs) は読み取りをもう一歩進めた例です。非同期の操作、
 `X-Api-Key` を読む自作の認証器、2 つのテナント、HTML ページ、スタイルシート、MCP を
 含みます。[`tests/example_inventory.rs`](tests/example_inventory.rs) が、この例に
 Senu の契約テストを走らせます。
 
 ## 得られるもの
 
-- **宣言は 1 つ、経路は 3 つ。** `Operation` が名前、説明、権限、文字列パラメータ、関数を
+- **宣言は 1 つ、経路は 3 つ。** `Operation` が名前、説明、権限、パラメータ、effect、関数を
   持ちます。`Endpoints` にルートを、`mcp::tool` でツールを並べます。宣言しただけでは
   何も公開されず、並べたものだけが到達可能になります。
 - **検査の順序は 1 つ。** HTML でも JSON でも MCP でも、認証が権限より先、権限が検証より
   先です。権限のない呼び出し元は、どの入力が有効かを何も知ることができません。
+- **読み取りも書き込みも。** 読み取りは `GET` で提供します。書き込みは、型つきの値を持つ
+  JSON の本文を `POST` で受け取ります。ブラウザが別サイトから送った書き込みは断り、
+  呼び出し元の認証と権限が済むまで本文を解析しません。MCP ツールに読み取り専用の印は
+  付きません。
 - **認証は持ち込めます。** `auth::Authenticate` が、リクエストのヘッダーをサーバー側の
   `Principal` に変えます。Bearer と Basic は組み込みです。セッション、データベースの
-  API キー、プロキシが付けるヘッダーは、このトレイトを実装して扱います。認証器のない
+  API キー、プロキシが付けるヘッダーは、このトレイトを実装して扱います。セッション向けに
+  `auth::cookie` とログイン画面への移動があります。認証器のない
   ルートは起動時に拒否されます。
 - **同期でも非同期でも。** メモリ上の処理は `Run::Sync`、待つ処理は `Run::Async` です。
 - **安全なエラー。** エラーはどれも固定のコードと文言なので、入力や秘密を繰り返しません。
   `OpError::Internal` は詳細を運びません。
 - **契約をテストキットとして。** `senu::contract::check` (`contract` 機能) は、あなたの
-  ルートとツールに実際のリクエストを送り、CT-1 から CT-7 の 7 つの規則を確かめます。
+  ルートとツールに実際のリクエストを送り、CT-1 から CT-12 の 12 の規則を確かめます。
+  キットの資格情報でも、あなたの認証器を通しても走ります。
 - **ふつうの `axum::Router`。** 好きな場所にバインドし、ログ、タイムアウト、レート制限の
   tower レイヤーを足せます。
 
 [ガイド](https://senu.efg-technologies.com/ja/overview.html)が各部分を説明します。
 [操作](https://senu.efg-technologies.com/ja/operations.html)、
+[書き込み](https://senu.efg-technologies.com/ja/writes.html)、
 [認証](https://senu.efg-technologies.com/ja/authentication.html)、
 [MCP ツール](https://senu.efg-technologies.com/ja/mcp-tools.html)、
 [デプロイ](https://senu.efg-technologies.com/ja/deployment.html)、
@@ -147,24 +159,29 @@ AI アシスタントは [llms.txt](https://senu.efg-technologies.com/llms.txt) 
 
 ## 状態と制限
 
-バージョン 0.2 は、ライブラリとして使うための最初のリリースです。API には文書があり、
-契約はテストされています。できないことも、はっきり書いておきます。
+バージョン 0.3 は、0.2 で公開したライブラリに書き込みの操作を足します。API には文書が
+あり、契約はテストされています。できないことも、はっきり書いておきます。
 
-- **読み取り専用。** 操作は `GET` で提供し、MCP ツールにはすべて読み取り専用の印が
-  付きます。書き込み操作、フォーム、CSRF トークンはありません。
-- **文字列と完全一致のパス。** パラメータは文字列で、解釈は操作が行います。
-  パスパラメータはありません。
+- **書き込みは JSON だけ。** 書き込みは JSON のオブジェクトを `POST` で受け取ります。
+  HTML フォームの送信、ファイルのアップロード、冪等キー、トランザクションはありません。
+  アトミックにするのは関数の仕事です。
+- **平らな引数と完全一致のパス。** 読み取りのパラメータは文字列です。書き込みでは数値と
+  真偽値も使えますが、リストや入れ子のオブジェクトは使えません。パスパラメータは
+  ありません。
 - **MCP は stdio だけ。** stdio サーバーは、自分を起動したローカルのプロセスを
   信頼します。HTTP 上の MCP はありません。
-- **セッション、ログイン画面、OAuth はありません。** あなたの `Authenticate` の実装と、
-  あなた自身のルートに置きます。
+- **セッションの保存、ログイン画面、OAuth はありません。** Senu は Cookie を読み、
+  ログイン画面へ移動させます。残りは、あなたの `Authenticate` の実装と、あなた自身の
+  ルートに置きます。
 - **TLS、ログ、タイムアウト、レート制限はありません。** ルーターの手前か、tower の
   レイヤーに置きます。
 - **未監査で、1.0 より前です。** 独立したセキュリティ監査は受けておらず、性能についての
   主張もしません。0.x の間は、マイナーバージョンで API が変わることがあります。変更は
   すべて [CHANGELOG.md](CHANGELOG.md) に書きます。
 
-このリリースは[仕様 0006](docs/specs/0006-library-release-and-public-site.md) (英語) が
+書き込みは[仕様 0007](docs/specs/0007-write-operations.md) (英語) が定めています。
+取り入れなかったものと、その理由も書いてあります。
+ライブラリとしての公開は[仕様 0006](docs/specs/0006-library-release-and-public-site.md) (英語) が
 定めています。
 
 ## 機能 (feature)
@@ -172,6 +189,7 @@ AI アシスタントは [llms.txt](https://senu.efg-technologies.com/llms.txt) 
 | 機能 | 既定 | 足されるもの |
 |---|---|---|
 | `demo` | 有効 | カタログのデモ、`senu` バイナリ、講座を含む記事サイト。依存する側は `default-features = false` で外します。 |
+| `stdio` | `demo` と一緒に有効 | `McpServer::serve_stdio`。`demo` と `stdio` を外すと、コアはソケットを必要としません。アプリケーション側で `uuid` の `js` 機能を有効にすれば、`cargo check --target wasm32-unknown-unknown` が通ります。 |
 | `contract` | 無効 | テストキット `senu::contract`。`[dev-dependencies]` で有効にします。 |
 
 この README の残りは、デモ、講座、このリポジトリでの開発の説明です。

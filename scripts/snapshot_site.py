@@ -76,7 +76,7 @@ ICON = (
     "</svg>\n"
 )
 SUMMARY = (
-    "Senu is an open-source Rust library (Apache-2.0). You declare a read-only function once, "
+    "Senu is an open-source Rust library (Apache-2.0). You declare a function once, a read or a write, "
     "with its permission and parameters, and Senu serves it as an HTML page, a JSON API and an "
     "MCP tool for AI assistants, with the same authentication order, the same errors and one "
     "contract test suite for all three. It is built on Axum, Askama and the official rmcp SDK."
@@ -255,8 +255,10 @@ def save_public(out, pages, base_url, content):
         "",
         f"> {SUMMARY}",
         "",
-        "Operations are read-only and served by GET, parameters are strings, and MCP runs over "
-        "stdio. Writes, MCP over HTTP, sessions and OAuth are not part of version 0.2. Senu is "
+        "A read is served by GET with string parameters; a write by POST with a JSON object of "
+        "strings, numbers and booleans, after a cross-site check. MCP runs over stdio. HTML form "
+        "posts, nested arguments, MCP over HTTP, session storage and OAuth are not part of "
+        "version 0.3. Senu is "
         "not audited security software. Each link below is the Markdown source of one page; "
         f"[llms-full.txt]({base_url}llms-full.txt) holds all of them in one file.",
         "",

@@ -4,8 +4,9 @@ Senu gives you an ordinary `axum::Router`. You bind it, put TLS in front of it a
 
 ## What does Senu do on every request?
 
-- Refuses a request target longer than 2048 bytes (414) and any request body (413), before routing.
-- Answers unknown paths with 404 and every method but `GET` with 405 and `Allow: GET`.
+- Refuses a request target longer than 2048 bytes (414), any body on a read (413) and a body over the limit on a write (413, 64 KiB by default), before routing.
+- Answers unknown paths with 404. A read answers only `GET` and a write only `POST`; anything else is 405 with `Allow`.
+- Refuses a write that a browser sends from another site (403), before authentication.
 - Sends `Cache-Control: no-store` and `X-Content-Type-Options: nosniff` on every response.
 - Sends a Content-Security-Policy on every HTML page: by default no scripts, images or frames, only same-origin stylesheets and form targets.
 - Never reads a credential from the query string, and never repeats input or secrets in an error.
@@ -18,7 +19,7 @@ Senu gives you an ordinary `axum::Router`. You bind it, put TLS in front of it a
 | Request logging and tracing | A tower layer, such as `tower_http::trace::TraceLayer` |
 | Timeouts | A tower layer, such as `tower_http::timeout::TimeoutLayer` |
 | Rate limiting and lockout | Your gateway, or a tower layer |
-| Sessions, login pages and OAuth | Your [authenticator](/authentication) and your own routes |
+| Session storage, login pages and OAuth | Your [authenticator](/authentication) and your own routes |
 | Audit logging | Your operations; `Principal::name` is there for it |
 | Health checks | A `custom` route |
 | Graceful shutdown | `axum::serve(...).with_graceful_shutdown(...)` |
@@ -38,7 +39,7 @@ Senu gives you an ordinary `axum::Router`. You bind it, put TLS in front of it a
         .map_err(|_| "inventory: the server stopped".to_owned())
 ```
 
-Layers go around the router in the usual Axum way, for example `router.layer(TraceLayer::new_for_http())`. To serve Senu's routes next to your own Axum routes, merge the routers with `Router::merge`. Layers you add must not log the `Authorization` or `Cookie` headers.
+Layers go around the router in the usual Axum way, for example `router.layer(TraceLayer::new_for_http())`. To serve Senu's routes next to your own Axum routes, merge the routers with `Router::merge`. Layers you add must not log the `Authorization` or `Cookie` headers. The cross-site check compares `Origin` with `Host`, so a proxy in front must pass the original `Host` on, or you name your public origin with `Endpoints::trusted_origin`.
 
 ## How should secrets be handled?
 
@@ -55,9 +56,10 @@ Put the tenant in the principal when you authenticate, and filter by `caller.ten
 3. Each principal holds only the permissions it needs.
 4. Timeouts, request logging and rate limits are in place as tower layers or at the gateway.
 5. Operations that wait are `Run::Async`; nothing blocks the executor.
-6. `OpError::Internal` is logged with its cause on the server.
-7. [The contract tests](/testing) and your own tenant-isolation tests run in CI.
-8. Dependencies are pinned with `Cargo.lock` and checked with `cargo audit` or a similar tool.
+6. Writes that touch several records use a transaction, and a retried delete does no harm.
+7. `OpError::Internal` is logged with its cause on the server.
+8. [The contract tests](/testing) and your own tenant-isolation tests run in CI.
+9. Dependencies are pinned with `Cargo.lock` and checked with `cargo audit` or a similar tool.
 
 ## Is Senu audited?
 

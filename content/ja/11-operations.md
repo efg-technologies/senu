@@ -1,6 +1,6 @@
 # 操作を宣言する
 
-操作は、名前・説明・権限・文字列パラメータを持つ読み取り専用の関数です。定数として一度だけ宣言し、到達させたい場所の一覧に載せます。
+操作は、名前・説明・権限・パラメータを持つ関数です。定数として一度だけ宣言し、到達させたい場所の一覧に載せます。このページは読み取りを扱います。[書き込み](/ja/writes)には、本文と別サイトの検査が加わります。
 
 ## 操作は何でできていますか
 
@@ -15,6 +15,7 @@ pub const GET_STOCK: Operation<Inventory, Level> = Operation {
         "sku",
         "The SKU: 1 to 16 characters of A-Z, 0-9 and '-'.",
     )],
+    effect: Effect::Read,
     run: Run::Async(|inventory, caller, args| Box::pin(get_stock(inventory, caller, args))),
 };
 ```
@@ -23,6 +24,7 @@ pub const GET_STOCK: Operation<Inventory, Level> = Operation {
 - `description` は人とアシスタントに向けた 1 文です。ツールの説明になるので、何を誰に返すかを書きます。
 - `permission` はアプリケーションの定数で、`Permission::new("view_stock")` のように宣言します。ほかの何よりも先に検査されます。
 - `params` は、呼び出し元が送ってよいキーのすべてです。どれも説明つきの文字列です。`Param::required` は必須で、`Param::optional` は省略できます。
+- `effect` は、何も変えない操作では `Effect::Read` です。読み取りは `GET` で提供し、パラメータは文字列です。
 - `run` が関数です。メモリ上の純粋な処理は `Run::Sync`、待つ処理は `Run::Async` にします。
 
 Senu はこのメタデータを、ルーターやツールの一覧を組み立てるときに検査します。不正な名前、空の説明、二重に宣言したパラメータは起動時のエラーになり、本番で初めて気づくことがありません。
@@ -72,6 +74,7 @@ async fn get_stock(
 | `OpError::Forbidden` | 403 | `forbidden` | 呼び出し元に権限がありません。関数が走る前に Senu が返します。 |
 | `OpError::InvalidRequest` | 400 | `invalid_request` | 引数が宣言したパラメータに合いません。 |
 | `OpError::Invalid { code, phrase }` | 400 | あなたの `code` | `invalid_sku` のような、操作独自の検証エラーです。 |
+| `OpError::Conflict { code, phrase }` | 409 | あなたの `code` | 形は正しいが、いまは出来ない[書き込み](/ja/writes)です。 |
 | `OpError::NotFound` | 404 | `not_found` | この呼び出し元に見えるものの中に、該当がありません。 |
 | `OpError::Internal` | 500 | `internal` | バックエンドが失敗しました。原因は自分でログに残します。呼び出し元には詳細を見せません。 |
 
@@ -121,10 +124,10 @@ pub fn tools() -> Vec<McpTool<Inventory>> {
 }
 ```
 
-- `.api(path, &OPERATION)` は JSON を返します。パスは `/api/` の下でなければなりません。
+- `.api(path, &OPERATION)` は JSON を返します。パスは `/api/` の下でなければなりません。読み取りは `GET`、書き込みは `POST` に答えます。
 - `.html(path, &OPERATION, view)` はページを返します。`view` は、受理された引数と結果から HTML を作る関数です。Askama を使えば、すべての値が既定でエスケープされます。
 - `.asset(path, content_type, bytes)` は、スタイルシートのような公開の静的ファイルを返します。
-- `.custom(path, handler)` は、それ以外のための抜け道です。サイズの上限とレスポンスヘッダーは付きますが、認証は付きません。認証はそのハンドラーの責任です。
+- `.custom(path, handler)` は、それ以外のための抜け道です。サイズの上限とレスポンスヘッダーは付きますが、認証は付きません。認証はそのハンドラーの責任です。`.custom_with_body(path, max_bytes, handler)` は、ログインのフォームのように本文を受け取るルートのための同じ仕組みです。
 - `.html_csp(policy)` は、ページの Content-Security-Policy を置き換えます。既定では同一オリジンのスタイルシートとフォームだけを許し、スクリプト・画像・フレームは許しません。
 
 `into_router(state)` は表の全体を検査し、`axum::Router` か、パスを名指しするエラーを返します。パスは完全一致で、重複せず、`/_senu/` の外になければなりません。`/_senu/` は Senu の組み込みスタイルシートのために予約されています。
@@ -133,4 +136,4 @@ pub fn tools() -> Vec<McpTool<Inventory>> {
 
 いつも同じです。上限、メソッド、認証、権限、パラメータの枠、そしてあなたの関数の順です。権限が検証より先にあることには意味があります。権限のない呼び出し元は、どの入力が有効だったかを何も知ることができません。[契約テスト](/ja/testing)は、この順序をあなたのルートで確かめます。
 
-次のページ: [呼び出し元を認証する](/ja/authentication)。
+次のページ: [書き込みの操作を宣言する](/ja/writes)。
