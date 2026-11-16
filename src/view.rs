@@ -52,6 +52,16 @@ pub struct Labels {
     /// The same in one sentence of at most 160 characters: the index's
     /// description for search results.
     pub description: &'static str,
+    /// The two buttons under the lead: the guide's first page (text, route)
+    /// and the source (text).
+    pub start: (&'static str, &'static str),
+    pub source: &'static str,
+    /// The three transports: a heading, then (name, sentence) each.
+    pub doors_heading: &'static str,
+    pub doors: [(&'static str, &'static str); 3],
+    /// What Senu does on every request: a heading, then (claim, sentence).
+    pub checks_heading: &'static str,
+    pub checks: [(&'static str, &'static str); 4],
     /// The heading above the install command on the index.
     pub install: &'static str,
     /// The sentence before the command that adds Senu from its Git tag.
@@ -137,6 +147,46 @@ pub static ENGLISH: Labels = Labels {
             It is built on Axum, Askama and the official rmcp SDK.",
     description: "Senu is a Rust library that serves one declared function as an HTML page, \
                   a JSON API and an MCP tool, with shared authentication, errors and contract tests.",
+    start: ("Read the guide", "/overview"),
+    source: "Source on GitHub",
+    doors_heading: "One declaration, three ways in",
+    doors: [
+        (
+            "Web page",
+            "For people: an HTML page rendered with Askama, every value escaped.",
+        ),
+        (
+            "JSON API",
+            "For programs: GET for reads, POST with a JSON body for writes.",
+        ),
+        (
+            "MCP tool",
+            "For AI assistants: the same function, marked read-only or not.",
+        ),
+    ],
+    checks_heading: "What Senu does on every request",
+    checks: [
+        (
+            "One order of checks.",
+            "Authentication, then the permission, then validation, on all three. \
+             A caller without the permission learns nothing about valid input.",
+        ),
+        (
+            "Writes that a browser cannot be tricked into.",
+            "A write from another site is refused before authentication, \
+             and no byte of its body is parsed before the permission is known.",
+        ),
+        (
+            "Nothing exposed by accident.",
+            "A route or a tool exists only where you list it, \
+             and a route without an authenticator is refused at startup.",
+        ),
+        (
+            "Tests you can run.",
+            "The twelve rules ship as a kit that sends real requests \
+             through your own routes and tools.",
+        ),
+    ],
     install: "Add it to a project",
     install_git: "Or build it from the Git tag instead of crates.io:",
     links: [
@@ -190,6 +240,46 @@ pub static JAPANESE: Labels = Labels {
             Axum、Askama、公式の rmcp SDK の上に作られています。",
     description: "Senu は、一度宣言した関数を HTML ページ・JSON API・MCP ツールとして提供する Rust ライブラリです。\
                   認証・エラー・契約テストを 3 つで共有します。",
+    start: ("ガイドを読む", "/ja/overview"),
+    source: "GitHub のソースコード",
+    doors_heading: "宣言は 1 つ、入口は 3 つ",
+    doors: [
+        (
+            "Web ページ",
+            "人のための入口です。Askama で描画する HTML で、値はすべてエスケープされます。",
+        ),
+        (
+            "JSON API",
+            "プログラムのための入口です。読み取りは GET、書き込みは JSON の本文つきの POST です。",
+        ),
+        (
+            "MCP ツール",
+            "AI アシスタントのための入口です。同じ関数を、読み取り専用かどうかの印つきで出します。",
+        ),
+    ],
+    checks_heading: "Senu がリクエストごとにすること",
+    checks: [
+        (
+            "検査の順序は 1 つ。",
+            "3 つのすべてで、認証、権限、検証の順に進みます。\
+             権限のない呼び出し元は、どの入力が有効かを何も知ることができません。",
+        ),
+        (
+            "ブラウザをだまして書き込ませない。",
+            "別サイトからの書き込みは、認証の前に断ります。\
+             権限が分かるまで、本文は 1 バイトも解析しません。",
+        ),
+        (
+            "うっかり公開されない。",
+            "ルートやツールは、一覧に書いた所にだけ存在します。\
+             認証器のないルートは、起動時に拒否します。",
+        ),
+        (
+            "自分で走らせられるテスト。",
+            "12 の規則をキットとして同梱しています。\
+             あなたのルートとツールに、実際のリクエストを送って確かめます。",
+        ),
+    ],
     install: "プロジェクトに追加する",
     install_git: "crates.io の代わりに、Git のタグからビルドすることもできます。",
     links: [
@@ -257,6 +347,13 @@ pub struct Seo {
     /// The snapshot's icon, so that a browser does not ask the host for
     /// `/favicon.ico`.
     pub icon: String,
+    /// The 1200x630 card that a link preview shows.
+    pub image: String,
+    /// The web app manifest, so that a phone can add the site to its home
+    /// screen and open it without browser controls.
+    pub manifest: String,
+    /// The icon that iOS uses on the home screen.
+    pub touch_icon: String,
 }
 
 /// What the index and article templates share.

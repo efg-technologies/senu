@@ -47,7 +47,10 @@
   every other template value stays escaped.
 - The public site is the snapshot that
   `scripts/snapshot_site.py --base-url <https URL ending in /> <dir>`
-  writes; the `pages` workflow deploys it from `main`. Canonical addresses
+  writes; the `pages` workflow deploys it from `main`. The card for link
+  previews and the home screen icons are committed in `assets/site/`;
+  change them only with `scripts/make_site_images.py` (headless Chromium).
+  The index's `<h1>` stays on one line without attributes. Canonical addresses
   follow the snapshot's file names (`/install` is `install.html`).
 - Both READMEs embed `scripts/quickstart.sh` byte for byte.
 - Look (spec 0004): Tailwind CSS utilities in `templates/*.html` and

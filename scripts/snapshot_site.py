@@ -29,7 +29,9 @@ to its page, 404.html and .nojekyll. They are then checked: every page has
 exactly one canonical address, one description and one JSON-LD element
 that parses, the sitemap lists exactly the saved pages, and every link of
 llms.txt names a saved Markdown file. icon.svg is written too, and every
-page must name it. This script deploys nothing; the
+page must name it. So are og.png (the card of link previews), the home
+screen icons and manifest.webmanifest, which let a phone add the site to
+its home screen; the images' sizes and the manifest are checked. This script deploys nothing; the
 `pages` workflow uploads the directory.
 """
 
@@ -39,6 +41,7 @@ import html.parser
 import posixpath
 import re
 import shutil
+import struct
 import signal
 import sys
 import urllib.error
@@ -56,6 +59,13 @@ NOTICES = "THIRD-PARTY-NOTICES.txt"
 PACKAGE_NOTICES = (b"/*! tailwindcss v", b"/*! @tailwindcss/typography v")
 HREF_ATTRIBUTE = re.compile(r'\shref="([^"]*)"')
 BASE_URL = re.compile(r"https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/([A-Za-z0-9._~-]+/)*")
+# The committed images of the public site and their sizes in pixels.
+SITE_IMAGES = {
+    "og.png": (1200, 630),
+    "icon-512.png": (512, 512),
+    "icon-192.png": (192, 192),
+    "apple-touch-icon.png": (180, 180),
+}
 SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
 XHTML_NS = "http://www.w3.org/1999/xhtml"
 # The groups of articles by number, in the order of the contents, as
@@ -294,6 +304,29 @@ def save_public(out, pages, base_url, content):
     )
     (out / "404.html").write_text(not_found, encoding="utf-8")
     (out / "icon.svg").write_text(ICON, encoding="utf-8")
+    # The card for link previews and the icons of the home screen, drawn by
+    # scripts/make_site_images.py and committed, and the web app manifest.
+    for name in SITE_IMAGES:
+        shutil.copyfile(ROOT / "assets" / "site" / name, out / name)
+    manifest = {
+        "name": "Senu: one Rust function as a web page, a JSON API and an MCP tool",
+        "short_name": "Senu",
+        "description": one_line(meta["/"].descriptions[0]) if meta["/"].descriptions else "",
+        "lang": "en",
+        "start_url": base_url,
+        "scope": base_url,
+        "display": "standalone",
+        "background_color": "#f9fafb",
+        "theme_color": "#111827",
+        "icons": [
+            {"src": f"{base_url}icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": f"{base_url}icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            {"src": f"{base_url}icon.svg", "sizes": "any", "type": "image/svg+xml"},
+        ],
+    }
+    (out / "manifest.webmanifest").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
 
@@ -346,6 +379,32 @@ def verify_public(out, base_url):
             encoding="utf-8"
         ):
             raise CheckFailed(f"{path.relative_to(out).as_posix()} does not name the icon")
+    for path, meta in pages.items():
+        text = path.read_text(encoding="utf-8")
+        for needle in (
+            f'<meta property="og:image" content="{base_url}og.png">',
+            f'<link rel="manifest" href="{base_url}manifest.webmanifest">',
+            f'<link rel="apple-touch-icon" href="{base_url}apple-touch-icon.png">',
+        ):
+            if needle not in text:
+                raise CheckFailed(f"{path.relative_to(out).as_posix()} lacks {needle}")
+    for name, (width, height) in SITE_IMAGES.items():
+        data = (out / name).read_bytes() if (out / name).is_file() else b""
+        if data[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(">II", data[16:24]) != (width, height):
+            raise CheckFailed(f"{name} must be a {width}x{height} PNG")
+    try:
+        manifest = json.loads((out / "manifest.webmanifest").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise CheckFailed("manifest.webmanifest is missing or not JSON") from None
+    icons = {icon.get("src"): icon.get("sizes") for icon in manifest.get("icons", [])}
+    if (
+        manifest.get("start_url") != base_url
+        or manifest.get("scope") != base_url
+        or manifest.get("display") != "standalone"
+        or icons.get(f"{base_url}icon-192.png") != "192x192"
+        or icons.get(f"{base_url}icon-512.png") != "512x512"
+    ):
+        raise CheckFailed("manifest.webmanifest needs the start URL, the scope and both icons")
     for name in ("llms-full.txt", "404.html", "icon.svg", ".nojekyll"):
         if not (out / name).is_file():
             raise CheckFailed(f"{name} was not saved")
