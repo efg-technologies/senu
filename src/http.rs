@@ -922,7 +922,8 @@ async fn write_route<S, T: Serialize>(
     if parts.method != Method::POST {
         return surface.post_only();
     }
-    if !auth::same_origin(&parts.headers, &app.trusted_origins) {
+    let authority = parts.uri.authority().map(|authority| authority.as_str());
+    if !auth::same_origin_at(&parts.headers, authority, &app.trusted_origins) {
         return surface.error(HttpError::CrossOrigin);
     }
     let Some(authenticator) = app.authenticator(surface) else {

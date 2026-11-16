@@ -253,6 +253,16 @@ pub(crate) fn is_origin(origin: &str) -> bool {
 /// changes state for a browser should call it too. It does nothing against
 /// a non-browser client, which needs no forgery to send a request.
 pub fn same_origin(headers: &HeaderMap, trusted: &[&str]) -> bool {
+    same_origin_at(headers, None, trusted)
+}
+
+/// [`same_origin`] for a request whose host may be in the request target
+/// instead of a `Host` header, as in HTTP/2.
+pub(crate) fn same_origin_at(
+    headers: &HeaderMap,
+    authority: Option<&str>,
+    trusted: &[&str],
+) -> bool {
     let single = |name: header::HeaderName| {
         let mut values = headers.get_all(name).iter();
         match (values.next(), values.next()) {
@@ -277,7 +287,7 @@ pub fn same_origin(headers: &HeaderMap, trusted: &[&str]) -> bool {
     match (site, origin) {
         (Some(site), _) => site == "same-origin" || site == "none",
         (None, None) => true,
-        (None, Some(origin)) => match (origin.split_once("://"), host) {
+        (None, Some(origin)) => match (origin.split_once("://"), host.or(authority)) {
             (Some((_, origin_host)), Some(host)) => origin_host.eq_ignore_ascii_case(host),
             _ => false,
         },
@@ -802,6 +812,15 @@ mod tests {
             ("sec-fetch-site", "cross-site"),
         ]);
         assert!(!same_origin(&twice, &[]));
+        // Without a Host header, as in HTTP/2, the target's authority counts.
+        let origin = with(&[("origin", "https://api.example.com")]);
+        assert!(same_origin_at(&origin, Some("api.example.com"), &[]));
+        assert!(!same_origin_at(&origin, Some("other.example.com"), &[]));
+        let both = with(&[
+            ("origin", "https://api.example.com"),
+            ("host", "other.example.com"),
+        ]);
+        assert!(!same_origin_at(&both, Some("api.example.com"), &[]));
         for (origin, valid) in [
             ("https://app.example.com", true),
             ("http://localhost:3000", true),

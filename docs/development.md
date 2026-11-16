@@ -1649,3 +1649,82 @@ the change, `python3 scripts/snapshot_site.py --base-url https://senu.efg-techno
 saved 36 pages with a sitemap of 36 addresses. The browser tool's snapshot
 files under `.playwright-mcp/`, committed by mistake with spec 0006, were
 removed and the directory is now ignored.
+
+## Spec 0007: write operations, typed arguments and session scaffolding
+
+Base: `e3bbd2d` (`main`, 0.2.0 plus the domain move). Branch
+`write-operations`. Run on Linux with Rust 1.99.1 on 2026-11-16, after the
+first adopter's report (a spike of Preship on 0.2.0).
+
+### What the adopter's spike needed, and where it went
+
+| Hand-written in the spike on 0.2 | In 0.3 |
+|---|---|
+| A second Axum router for writes, with its own auth call, origin check, body validation and status codes | `effect: Effect::CREATE` and `.api(path, &OP)` |
+| A `Cookie` parser | `auth::cookie` |
+| An invented `WWW-Authenticate` value | `Authenticate::challenge` defaults to `None` |
+| 401 on pages | `AppStateBuilder::html_login` |
+| POST routes outside the table | `Endpoints::custom_with_body` |
+| The contract through Basic and Bearer only | `Subject::auth` |
+
+The spike was rewritten against the branch in
+`~/.local/state/strategy/senu-handoff-2026-11-16/spike-0.3/`: no second
+router, five declared operations, and the contract (CT-1 to CT-12) passes
+through its session authenticator. The first run of that contract failed,
+correctly: the rewritten authenticator gave every session both permissions
+and ignored the principal the kit asked for, so the kit's principal without
+permissions could read (CT-3).
+
+### The new checks can fail (WR-2)
+
+Each change was made, seen to fail, and reverted:
+
+| Change in `write_route` or `mcp::tool` | Failing check |
+|---|---|
+| Skip the cross-site check | CT-9, and two tests of `example_items` |
+| Check the permission after the body | CT-10 |
+| Accept any content type | CT-11 |
+| Accept any method | CT-8 |
+| Mark writes `readOnlyHint: true` | CT-12 |
+| Read the body without a limit | `example_items::a_write_is_refused_step_by_step…` (the streamed case); the kit sends a declared length, which the limits layer refuses first |
+
+### Checks at the head of the branch
+
+- `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
+  clippy on the core with no features, with `contract` and with `stdio`;
+  `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --all-features`:
+  clean.
+- `cargo test --locked -- --test-threads=2`: 254 passed (153 unit, 97
+  integration, 4 documentation tests). At the base it was 243.
+- `scripts/quickstart.sh`: passed. The demo's routes and bodies are
+  unchanged.
+- `python3 scripts/check_tutorial.py`: English, then Japanese, passed, after
+  the filtered-test counts in chapters 06 and 90 were updated (148 to 151,
+  149 to 152).
+- `python3 scripts/snapshot_site.py <dir>` and with `--base-url`: 38 pages,
+  a sitemap of 38 addresses.
+- `cargo package --locked`: 78 files; the packaged crate builds.
+- `examples/items.rs` was run as a server and called with curl: create 200
+  with an id, no session 401, a foreign `Origin` 403 `cross_origin`, the
+  server's own origin 200, a deployed item 409 `item_deployed`, `GET` on a
+  write 405, and after `POST /logout` the session answered 401.
+
+### Without sockets (PKG-1)
+
+With `--no-default-features`, `cargo tree -i mio` prints nothing. In a crate
+outside the repository that depends on Senu without default features and
+adds `uuid = { version = "1", features = ["js"] }`,
+`cargo check --target wasm32-unknown-unknown` finished. Without that line
+it stops in `uuid`, which rmcp's `server` feature pulls in and which needs
+a source of randomness on that target. Only `cargo check` was run; nothing
+was executed on a WebAssembly runtime or on Cloudflare Workers.
+
+### Not done
+
+- No independent review. The adopter's brief recommends one, because the
+  security boundary widens from reads to writes.
+- MCP over HTTP with a principal per request is not designed here; it needs
+  spec 0008.
+- No release: the version in `Cargo.toml` is 0.3.0, without a tag and
+  without publication. The branch is not merged, because merging deploys a
+  site that would describe a version that is not on crates.io.

@@ -1,6 +1,6 @@
 # Senu Spec 0007: Write Operations, Typed Arguments and Session Scaffolding
 
-Status: draft, 2026-11-16. It answers the first adopter's report (Preship, on 0.2.0 at e3bbd2d) and withdraws the non-goals "write operations", "typed parameters" and "sessions" of spec 0006 as far as §3 says. It amends specs 0001, 0005 and 0006 where §9 says so. Evidence belongs in `docs/development.md`.
+Status: implemented, 2026-11-16 (evidence in `docs/development.md`); not released. It answers the first adopter's report (Preship, on 0.2.0 at e3bbd2d) and withdraws the non-goals "write operations", "typed parameters" and "sessions" of spec 0006 as far as §3 says. It amends specs 0001, 0005 and 0006 where §9 says so. Evidence belongs in `docs/development.md`.
 
 ## 1. Goal and boundaries
 
@@ -37,7 +37,7 @@ Status: draft, 2026-11-16. It answers the first adopter's report (Preship, on 0.
 
 Those of specs 0005 and 0006 hold. In addition: a write never runs on `GET`; no byte of a body is parsed before authentication and the permission; a cross-site browser request never reaches authentication on a write route; a route's body limit holds for declared and for streamed lengths; errors stay fixed and repeat no input; a write is exposed only where listed, and its MCP annotations never call it read-only.
 
-Not guaranteed: atomicity, idempotency or retries of the application's function; protection of `custom` routes, which own their checks; anything about a client that is not a browser and holds a valid credential.
+Not guaranteed: atomicity, idempotency or retries of the application's function; that a JSON body names each key once (the last value of a repeated key counts, as `serde_json` reads it); the scheme in the origin check, which compares host and port only, so a page served over plain HTTP from the same host passes, and TLS with HSTS is what rules that out; protection of `custom` routes, which own their checks; anything about a client that is not a browser and holds a valid credential.
 
 ## 5. Not adopted, and why
 
@@ -70,5 +70,5 @@ Breaking, so the version is 0.3.0. Every `Operation { .. }` needs `effect: Effec
 - **SES-1** `auth::cookie`, the optional challenge and the login redirect work as §3 says.
 - **CUS-1** `custom_with_body` takes a body up to its limit with Senu's headers.
 - **EQV-1** Every pre-existing test passes with only the §9 changes.
-- **PKG-1** The core builds without `stdio`; whether it builds for `wasm32-unknown-unknown` is recorded as measured.
+- **PKG-1** The core builds without `stdio`; whether it builds for `wasm32-unknown-unknown` is recorded as measured. Without a `Host` header, as in HTTP/2, the origin check uses the authority of the request target.
 - **DOC-1** The example, the guide in both languages, the READMEs, the changelog and the limits are in step; all checks of `AGENTS.md` pass.

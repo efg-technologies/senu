@@ -175,6 +175,44 @@ fn a_table_without_the_surfaces_authenticator_is_refused() {
     assert!(message.contains("html_auth or api_auth"), "{message}");
 }
 
+/// Spec 0007, §3: a query string carries strings only, so a read with a
+/// typed parameter is refused before anything is exposed.
+#[test]
+fn a_read_with_a_typed_parameter_is_refused_at_startup() {
+    const TYPED: Operation<Notes, Value> = Operation {
+        name: "typed_read",
+        description: "A read that asks for a number.",
+        permission: READ,
+        params: &[Param::optional("limit", "How many.").integer()],
+        effect: Effect::Read,
+        run: Run::Sync(broken),
+    };
+    const WRITE: Operation<Notes, Value> = Operation {
+        effect: Effect::UPDATE,
+        ..TYPED
+    };
+    let invalid = TYPED.check().expect_err("a typed read");
+    assert!(invalid.reason.contains("must be strings"), "{invalid}");
+    let state = || {
+        AppState::builder(Notes::default())
+            .api_auth(bearer())
+            .build()
+    };
+    let refused = Endpoints::new()
+        .api("/api/typed", &TYPED)
+        .into_router(state());
+    assert_eq!(refused.err(), Some(RouteError::Operation(invalid)));
+    assert!(McpServer::with_tools(Notes::default(), clerk(), vec![mcp::tool(&TYPED)]).is_err());
+    // The same parameters are fine on a write.
+    assert_eq!(WRITE.check(), Ok(()));
+    assert!(
+        Endpoints::new()
+            .api("/api/typed", &WRITE)
+            .into_router(state())
+            .is_ok()
+    );
+}
+
 #[tokio::test]
 async fn an_asynchronous_authenticator_supplies_a_run_time_principal() {
     let state = AppState::builder(Notes::default())
